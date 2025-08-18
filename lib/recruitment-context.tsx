@@ -40,6 +40,24 @@ export interface Stage {
   order: number
 }
 
+export interface Notification {
+  id: number
+  recipient_name: string
+  recipient_email?: string
+  candidate_id: number
+  candidate_name: string
+  process_id: number
+  process_title: string
+  stage_id: number
+  stage_name: string
+  message: string
+  type: string
+  status: string
+  moved_by: string
+  created_at: string
+  read_at?: string
+}
+
 export interface Process {
   id: number
   title: string
@@ -85,6 +103,10 @@ interface RecruitmentContextType {
   uploadCV: (file: File, candidateId?: number) => Promise<string>
   downloadCV: (cvUrl: string) => Promise<void>
   updateCandidateCV: (candidateId: number, cvUrl: string) => Promise<void>
+  notifications: Notification[]
+  getNotificationsForUser: (userName: string) => Notification[]
+  markNotificationAsRead: (notificationId: number) => Promise<void>
+  getUnreadNotificationsCount: (userName: string) => number
 }
 
 const RecruitmentContext = createContext<RecruitmentContextType | undefined>(undefined)
@@ -97,6 +119,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [stages, setStages] = useState<Stage[]>([])
   const [processes, setProcesses] = useState<Process[]>([])
+  const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
 
   const fetchInitialData = useCallback(async () => {
@@ -108,8 +131,9 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
 
     setLoading(true)
     const { data: processesData, error: processesError } = await supabase.from("processes").select("*").order("id")
-    const { data: stagesData, error: stagesError } = await supabase.from("stages").select("*").order("process_id, order")
-    const { data: candidatesData, error: candidatesError } = await supabase.from("candidates").select("*")
+          const { data: stagesData, error: stagesError } = await supabase.from("stages").select("*").order("process_id, order")
+      const { data: candidatesData, error: candidatesError } = await supabase.from("candidates").select("*")
+      const { data: notificationsData, error: notificationsError } = await supabase.from("notifications").select("*").order("created_at", { ascending: false })
 
     if (processesError) console.error("Error fetching processes:", processesError)
     else setProcesses(processesData || [])
@@ -117,8 +141,11 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     if (stagesError) console.error("Error fetching stages:", stagesError)
     else setStages(stagesData || [])
 
-    if (candidatesError) console.error("Error fetching candidates:", candidatesError)
-    else setCandidates(candidatesData || [])
+          if (candidatesError) console.error("Error fetching candidates:", candidatesError)
+      else setCandidates(candidatesData || [])
+
+      if (notificationsError) console.error("Error fetching notifications:", notificationsError)
+      else setNotifications(notificationsData || [])
 
     setLoading(false)
   }, [])
@@ -269,6 +296,48 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         }
 
     await addTimelineEvent(candidateId, timelineEvent)
+
+    // Crear notificación para el responsable de la nueva etapa
+    try {
+      const { error: notificationError } = await supabase.rpc('create_stage_movement_notification', {
+        p_candidate_id: candidateId,
+        p_new_stage_id: newStageId,
+        p_moved_by: author
+      })
+
+      if (notificationError) {
+        console.error("Error creating notification:", notificationError)
+        // No lanzar error aquí, la notificación es secundaria
+      } else {
+        // Refrescar notificaciones después de crear una nueva
+        await fetchNotifications()
+        
+        // Enviar email real con Resend
+        await sendNotificationEmail(candidateId, newStageId, author)
+      }
+    } catch (notificationError) {
+      console.error("Error calling notification function:", notificationError)
+      // No lanzar error aquí, la notificación es secundaria
+    }
+  }
+
+  const fetchNotifications = async () => {
+    if (!useSupabase) return
+
+    try {
+      const { data, error } = await supabase
+        .from("notifications")
+        .select("*")
+        .order("created_at", { ascending: false })
+
+      if (error) {
+        console.error("Error fetching notifications:", error)
+      } else {
+        setNotifications(data || [])
+      }
+    } catch (error) {
+      console.error("Error in fetchNotifications:", error)
+    }
   }
 
   const addTimelineEvent = async (candidateId: number, event: Omit<TimelineEvent, "id" | "candidate_id">) => {
@@ -598,12 +667,112 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     return processResult
   }
 
+  const getNotificationsForUser = (userName: string): Notification[] => {
+    return notifications.filter(notification => 
+      notification.recipient_name === userName
+    )
+  }
+
+  const markNotificationAsRead = async (notificationId: number): Promise<void> => {
+    if (!useSupabase) return
+
+    try {
+      const { error } = await supabase.rpc('mark_notification_as_read', {
+        p_notification_id: notificationId
+      })
+
+      if (error) {
+        console.error("Error marking notification as read:", error)
+        throw error
+      }
+
+      // Actualizar estado local
+      setNotifications(prev => 
+        prev.map(n => 
+          n.id === notificationId 
+            ? { ...n, status: 'read', read_at: new Date().toISOString() }
+            : n
+        )
+      )
+    } catch (error) {
+      console.error("Error in markNotificationAsRead:", error)
+      throw error
+    }
+  }
+
+  const getUnreadNotificationsCount = (userName: string): number => {
+    return notifications.filter(n => 
+      n.recipient_name === userName && n.status === 'unread'
+    ).length
+  }
+
+  const sendNotificationEmail = async (candidateId: number, newStageId: number, movedBy: string) => {
+    try {
+      // Obtener información necesaria
+      const candidate = candidates.find(c => c.id === candidateId)
+      const newStage = stages.find(s => s.id === newStageId)
+      const process = candidate ? processes.find(p => p.id === candidate.process_id) : null
+
+      if (!candidate || !newStage || !process) {
+        console.warn("No se puede enviar email: falta información del candidato, etapa o proceso")
+        return
+      }
+
+      // Solo enviar email si hay un responsable asignado y no es "Sistema"
+      if (!newStage.responsible || newStage.responsible === 'Sistema') {
+        console.log("No se envía email: etapa sin responsable o es 'Sistema'")
+        return
+      }
+
+      // Obtener email del responsable desde la base de datos
+      const { data: responsibleProfile } = await supabase
+        .from('profiles')
+        .select('email')
+        .eq('full_name', newStage.responsible)
+        .single()
+
+      if (!responsibleProfile?.email) {
+        console.warn(`No se encontró email para el responsable: ${newStage.responsible}`)
+        return
+      }
+
+      // Llamar a la API de envío de emails
+      const response = await fetch('/api/send-notification-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          recipientEmail: responsibleProfile.email,
+          recipientName: newStage.responsible,
+          candidateName: candidate.name,
+          stageName: newStage.name,
+          processTitle: process.title,
+          movedBy: movedBy
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        console.log('✅ Email enviado exitosamente:', result)
+      } else {
+        console.error('❌ Error enviando email:', result)
+      }
+
+    } catch (error) {
+      console.error('Error en sendNotificationEmail:', error)
+      // No lanzar error para no afectar el flujo principal
+    }
+  }
+
   return (
     <RecruitmentContext.Provider
       value={{
         candidates,
         stages,
         processes,
+        notifications,
         loading,
         moveCandidateToStage,
         addTimelineEvent,
@@ -621,6 +790,9 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         uploadCV,
         downloadCV,
         updateCandidateCV,
+        getNotificationsForUser,
+        markNotificationAsRead,
+        getUnreadNotificationsCount,
       }}
     >
       {children}

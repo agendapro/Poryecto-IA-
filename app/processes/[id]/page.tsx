@@ -335,14 +335,26 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, stage.id)}
                   >
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-semibold text-foreground">{stage.name}</h3>
-                        <Badge variant="secondary">{stageCandidates.length}</Badge>
+                    <div className="mb-4">
+                      {/* Encargado de la etapa */}
+                      {stage.responsible && stage.responsible !== 'Sistema' && (
+                        <div className="mb-2">
+                          <p className="text-xs text-muted-foreground font-medium">
+                            Encargado: {stage.responsible}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Título y acciones */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-semibold text-foreground">{stage.name}</h3>
+                          <Badge variant="secondary">{stageCandidates.length}</Badge>
+                        </div>
+                        <Button size="sm" variant="ghost" onClick={() => handleAddCandidate(stage.id)}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
                       </div>
-                      <Button size="sm" variant="ghost" onClick={() => handleAddCandidate(stage.id)}>
-                        <Plus className="h-4 w-4" />
-                      </Button>
                     </div>
 
                     <div className="space-y-3">

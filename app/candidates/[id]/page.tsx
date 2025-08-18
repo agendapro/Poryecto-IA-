@@ -407,8 +407,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <CardTitle>Comentarios</CardTitle>
-                  <span className="text-sm text-muted-foreground">{timeline.length} eventos en el timeline</span>
+                  {/* Título eliminado como solicitó el usuario */}
                 </div>
                 <Button
                   variant="outline"
@@ -417,7 +416,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                   className="flex items-center space-x-2"
                 >
                   {showAllComments ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  <span>{showAllComments ? "Ocultar todos" : "Mostrar todos"}</span>
+                  <span>{showAllComments ? "Ocultar todos los comentarios" : "Mostrar todos los comentarios"}</span>
                 </Button>
               </div>
             </CardHeader>
@@ -455,7 +454,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                             {isVisible ? (
                               <div className="text-sm text-foreground">{event.description}</div>
                             ) : (
-                              <div className="text-sm text-muted-foreground italic">Comentario privado</div>
+                              <div className="text-sm text-muted-foreground italic">Comentario oculto</div>
                             )}
                           </div>
                         ) : (
@@ -468,12 +467,12 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                           variant="ghost" 
                           size="sm" 
                           onClick={() => toggleCommentVisibility(event.id)}
-                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                          className="ml-2"
                         >
                           {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </Button>
                       ) : (
-                        <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Button variant="ghost" size="sm" className="ml-2 opacity-30">
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       )}
