@@ -37,7 +37,7 @@ import withAuth from "@/components/withAuth"
 import { useRouter } from "next/navigation"
 
 function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
-  const { stages, processes, getProcess, getCandidatesByStage, moveCandidateToStage, addCandidate, rejectCandidate, getRejectedCandidates, getRejectedCandidatesByProcess, getCandidate, getStagesByProcess, loading } = useRecruitment()
+  const { stages, processes, getProcess, getCandidatesByStage, moveCandidateToStage, addCandidate, rejectCandidate, getRejectedCandidates, getRejectedCandidatesByProcess, getCandidate, getStagesByProcess, loading, uploadCV } = useRecruitment()
   const { profile } = useAuth()
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false)
   const [selectedStage, setSelectedStage] = useState<number | null>(null)
@@ -54,7 +54,7 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
     phone: "",
     location: "",
     origen: "",
-    cv: null as File | null,
+    cv: undefined as File | undefined,
   })
   
   const router = useRouter()
@@ -103,7 +103,8 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
           phone: candidateForm.phone,
           location: candidateForm.location,
           origen: candidateForm.origen,
-          cv: candidateForm.cv ? candidateForm.cv.name : null, // Por ahora solo guardamos el nombre del archivo
+          cv: undefined, // La URL se generará automáticamente
+          cvFile: candidateForm.cv, // Pasamos el archivo para que se suba
           process_id: processId,
           current_stage_id: selectedStage,
         })
@@ -115,7 +116,7 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
           phone: "",
           location: "",
           origen: "",
-          cv: null,
+          cv: undefined,
         })
         setIsAddCandidateOpen(false)
         setSelectedStage(null)
@@ -124,7 +125,8 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
         alert("¡Candidato agregado exitosamente!")
       } catch (error) {
         console.error('Error adding candidate:', error)
-        alert("Error al agregar candidato. Por favor, intenta de nuevo.")
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+        alert(`Error al agregar candidato: ${errorMessage}`)
       } finally {
         setIsAddingCandidate(false)
       }

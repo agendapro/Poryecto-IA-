@@ -61,7 +61,7 @@ interface RecruitmentContextType {
   getCandidate: (candidateId: number) => Candidate | undefined
   getNextStage: (currentStageId: number) => Stage | undefined
   addCandidate: (
-    candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated">,
+    candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated"> & { cvFile?: File },
   ) => Promise<Candidate | undefined>
   rejectCandidate: (candidateId: number, reason: string, author?: string) => Promise<void>
   getRejectedCandidates: () => Candidate[]
@@ -82,6 +82,9 @@ interface RecruitmentContextType {
     salary_range?: string
     status: string
   }) => Promise<Process | undefined>
+  uploadCV: (file: File, candidateId?: number) => Promise<string>
+  downloadCV: (cvUrl: string) => Promise<void>
+  updateCandidateCV: (candidateId: number, cvUrl: string) => Promise<void>
 }
 
 const RecruitmentContext = createContext<RecruitmentContextType | undefined>(undefined)
@@ -250,7 +253,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     const timelineEvent = candidate.status === "Rechazado" 
       ? {
           type: "stage_change" as const,
-          title: "Candidato reactivado",
+          title: "",
           description: `Movido desde Rechazados a "${newStage.name}"`,
           author,
           date: new Date().toISOString(),
@@ -258,7 +261,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         }
       : {
           type: "stage_change" as const,
-          title: `Movido a ${newStage.name}`,
+          title: "",
           description: currentStage ? `El candidato fue movido de "${currentStage.name}" a "${newStage.name}"` : `Movido a "${newStage.name}"`,
           author,
           date: new Date().toISOString(),
@@ -294,14 +297,120 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     return stages.find((s) => s.order === currentStage.order + 1)
   }
 
+  const uploadCV = async (file: File, candidateId?: number): Promise<string> => {
+    if (!useSupabase) throw new Error("Supabase not available")
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      if (!user) throw new Error("Usuario no autenticado")
+
+      // Crear nombre único para el archivo
+      const timestamp = new Date().getTime()
+      const fileName = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+      const filePath = `${user.id}/${fileName}`
+
+      // Subir archivo a Storage
+      const { data, error } = await supabase.storage
+        .from('cvs')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: false
+        })
+
+      if (error) {
+        console.error("Error uploading file:", error)
+        throw new Error(`Error al subir archivo: ${error.message}`)
+      }
+
+      // Obtener URL pública del archivo
+      const { data: { publicUrl } } = supabase.storage
+        .from('cvs')
+        .getPublicUrl(filePath)
+
+      if (!publicUrl) {
+        throw new Error("No se pudo generar URL pública del archivo")
+      }
+
+      return publicUrl
+    } catch (error) {
+      console.error("Error in uploadCV:", error)
+      throw error
+    }
+  }
+
+  const downloadCV = async (cvUrl: string): Promise<void> => {
+    if (!cvUrl) {
+      alert("No hay URL de CV disponible")
+      return
+    }
+    
+    try {
+      // Verificar si la URL es válida
+      if (!cvUrl.startsWith('http')) {
+        throw new Error("URL de CV inválida")
+      }
+      
+      // Abrir en nueva pestaña para visualizar/descargar
+      window.open(cvUrl, '_blank')
+    } catch (error) {
+      console.error("Error downloading CV:", error)
+      alert(`Error al abrir CV: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+    }
+  }
+
+  const updateCandidateCV = async (candidateId: number, cvUrl: string): Promise<void> => {
+    if (!useSupabase) return
+
+    try {
+      const { error } = await supabase
+        .from("candidates")
+        .update({ cv: cvUrl, last_updated: new Date().toISOString() })
+        .eq("id", candidateId)
+
+      if (error) {
+        console.error("Error updating candidate CV:", error)
+        throw new Error(`Error al actualizar CV: ${error.message}`)
+      }
+
+      // Actualizar estado local inmediatamente
+      setCandidates(prev => 
+        prev.map(c => 
+          c.id === candidateId 
+            ? { ...c, cv: cvUrl, last_updated: new Date().toISOString() }
+            : c
+        )
+      )
+    } catch (error) {
+      console.error("Error in updateCandidateCV:", error)
+      throw error
+    }
+  }
+
   const addCandidate = async (
-    candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated">,
+    candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated"> & { cvFile?: File },
   ): Promise<Candidate | undefined> => {
     if (!useSupabase) return undefined
 
     const currentDate = new Date().toISOString().split("T")[0]
+    
+    // Separar el archivo del resto de datos
+    const { cvFile, ...restData } = candidateData
+    let cvUrl = restData.cv
+
+    // Si hay un archivo, subirlo primero
+    if (cvFile) {
+      try {
+        cvUrl = await uploadCV(cvFile)
+      } catch (error) {
+        console.error("Error uploading CV:", error)
+        throw new Error("Error al subir el CV")
+      }
+    }
+
     const newCandidateData = {
-      ...candidateData,
+      ...restData,
+      cv: cvUrl,
       applied_date: currentDate,
       last_updated: currentDate,
       comments: 0,
@@ -326,7 +435,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     // Agregar evento al timeline
     await addTimelineEvent(data.id, {
       type: "application",
-      title: "Candidato aplicó al proceso",
+      title: "",
       description: `Se registró en el proceso desde ${candidateData.origen}`,
       author: "Sistema",
       date: new Date().toISOString(),
@@ -369,7 +478,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       try {
         await addTimelineEvent(candidateId, {
           type: "movement",
-          title: "Candidato rechazado",
+          title: "",
           description: `Motivo: ${reason}`,
           author,
           date: new Date().toISOString(),
@@ -509,6 +618,9 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         getStagesByProcess,
         createProcess,
         updateProcess,
+        uploadCV,
+        downloadCV,
+        updateCandidateCV,
       }}
     >
       {children}

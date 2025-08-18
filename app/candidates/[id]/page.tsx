@@ -21,6 +21,7 @@ import {
   X,
   Eye,
   EyeOff,
+  Upload,
 } from "lucide-react"
 import { useRecruitment, type TimelineEvent } from "@/lib/recruitment-context"
 import { useAuth } from "@/lib/auth-context"
@@ -32,7 +33,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = React.use(params)
   const candidateId = Number.parseInt(id)
 
-  const { getCandidate, getNextStage, moveCandidateToStage, addTimelineEvent, stages, rejectCandidate, getProcess, getStagesByProcess, loading } =
+  const { getCandidate, getNextStage, moveCandidateToStage, addTimelineEvent, stages, rejectCandidate, getProcess, getStagesByProcess, loading, uploadCV, downloadCV, updateCandidateCV } =
     useRecruitment()
   const { profile } = useAuth()
   const candidate = getCandidate(candidateId)
@@ -45,6 +46,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const [rejectReason, setRejectReason] = useState("")
   const [showAllComments, setShowAllComments] = useState(false)
   const [visibleComments, setVisibleComments] = useState<Set<number>>(new Set())
+  const [isUploadingCV, setIsUploadingCV] = useState(false)
 
   const fetchTimeline = async () => {
     if (!candidate) return
@@ -170,6 +172,51 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
     }
   }
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.type !== "application/pdf") {
+      alert("Por favor, selecciona un archivo PDF válido")
+      e.target.value = ""
+      return
+    }
+
+    setIsUploadingCV(true)
+    try {
+      const cvUrl = await uploadCV(file)
+      await updateCandidateCV(candidateId, cvUrl)
+      
+      // Añadir evento al timeline
+      await addTimelineEvent(candidateId, {
+        type: "movement",
+        title: "",
+        description: `CV actualizado: ${file.name}`,
+        author: profile?.full_name || "Usuario",
+        date: new Date().toISOString(),
+        icon: "FileText",
+      })
+
+      alert("CV subido exitosamente!")
+      await fetchTimeline() // Refrescar timeline
+    } catch (error) {
+      console.error("Error uploading CV:", error)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`Error al subir CV: ${errorMessage}`)
+    } finally {
+      setIsUploadingCV(false)
+      e.target.value = ""
+    }
+  }
+
+  const handleDownloadCV = () => {
+    if (candidate?.cv) {
+      downloadCV(candidate.cv)
+    } else {
+      alert("No hay CV disponible para descargar")
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -290,14 +337,66 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                   {/* Document rendering logic will go here */}
                 </div>
 
-                {/* Upload Area */}
-                <div className="mt-4 border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
-                  <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                  <p className="text-sm text-muted-foreground mb-2">Arrastra archivos aquí o</p>
-                  <Button size="sm" variant="outline">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Seleccionar archivos
-                  </Button>
+                {/* CV Section */}
+                <div className="mt-4">
+                  {candidate?.cv ? (
+                    <div className="border border-muted-foreground/25 rounded-lg p-4">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-3">
+                          <FileText className="h-8 w-8 text-blue-600" />
+                          <div>
+                            <p className="font-medium">CV del candidato</p>
+                            <p className="text-sm text-muted-foreground">Archivo PDF disponible</p>
+                          </div>
+                        </div>
+                        <div className="flex space-x-2">
+                          <Button size="sm" variant="outline" onClick={handleDownloadCV}>
+                            <Download className="h-4 w-4 mr-2" />
+                            Ver/Descargar
+                          </Button>
+                          <input
+                            type="file"
+                            accept=".pdf"
+                            onChange={handleFileUpload}
+                            className="hidden"
+                            id="cv-upload-replace"
+                            disabled={isUploadingCV}
+                          />
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => document.getElementById("cv-upload-replace")?.click()}
+                            disabled={isUploadingCV}
+                          >
+                            <Plus className="h-4 w-4 mr-2" />
+                            {isUploadingCV ? "Subiendo..." : "Reemplazar"}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center">
+                      <FileText className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+                      <p className="text-sm text-muted-foreground mb-2">No hay CV subido</p>
+                      <input
+                        type="file"
+                        accept=".pdf"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                        id="cv-upload-new"
+                        disabled={isUploadingCV}
+                      />
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => document.getElementById("cv-upload-new")?.click()}
+                        disabled={isUploadingCV}
+                      >
+                        <Plus className="h-4 w-4 mr-2" />
+                        {isUploadingCV ? "Subiendo..." : "Subir CV (PDF)"}
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </CardContent>
             </Card>
