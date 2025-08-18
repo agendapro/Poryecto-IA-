@@ -7,6 +7,7 @@ import type { RealtimePostgresChangesPayload } from "@supabase/supabase-js"
 // Types (alineados con la BD)
 export interface Candidate {
   id: number
+  process_id: number
   name: string
   email: string
   phone: string | null
@@ -33,6 +34,7 @@ export interface TimelineEvent {
 
 export interface Stage {
   id: number
+  process_id: number
   name: string
   responsible: string | null
   order: number
@@ -52,6 +54,7 @@ interface RecruitmentContextType {
   candidates: Candidate[]
   stages: Stage[]
   processes: Process[]
+  loading: boolean
   moveCandidateToStage: (candidateId: number, newStageId: number, author?: string) => Promise<void>
   addTimelineEvent: (candidateId: number, event: Omit<TimelineEvent, "id" | "candidate_id">) => Promise<void>
   getCandidatesByStage: (stageId: number) => Candidate[]
@@ -59,10 +62,26 @@ interface RecruitmentContextType {
   getNextStage: (currentStageId: number) => Stage | undefined
   addCandidate: (
     candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated">,
-  ) => Promise<void>
+  ) => Promise<Candidate | undefined>
   rejectCandidate: (candidateId: number, reason: string, author?: string) => Promise<void>
   getRejectedCandidates: () => Candidate[]
+  getRejectedCandidatesByProcess: (processId: number) => Candidate[]
   getProcess: (processId: number) => Process | undefined
+  getStagesByProcess: (processId: number) => Stage[]
+  createProcess: (processData: {
+    title: string
+    description: string
+    manager: string
+    salary_range?: string
+    stages: Array<{ name: string; responsible?: string }>
+  }) => Promise<Process>
+  updateProcess: (processId: number, processData: {
+    title: string
+    description: string
+    manager: string
+    salary_range?: string
+    status: string
+  }) => Promise<Process | undefined>
 }
 
 const RecruitmentContext = createContext<RecruitmentContextType | undefined>(undefined)
@@ -79,15 +98,14 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
 
   const fetchInitialData = useCallback(async () => {
     if (!useSupabase) {
-      console.log("Supabase no configurado, usando mocks...")
-      // Aquí se podrían cargar los mocks si se quisiera mantener ese fallback
+      console.error("Supabase no está configurado. Verifica las variables de entorno.")
       setLoading(false)
       return
     }
 
     setLoading(true)
     const { data: processesData, error: processesError } = await supabase.from("processes").select("*").order("id")
-    const { data: stagesData, error: stagesError } = await supabase.from("stages").select("*").order("order")
+    const { data: stagesData, error: stagesError } = await supabase.from("stages").select("*").order("process_id, order")
     const { data: candidatesData, error: candidatesError } = await supabase.from("candidates").select("*")
 
     if (processesError) console.error("Error fetching processes:", processesError)
@@ -107,10 +125,17 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
 
     if (!useSupabase) return
 
-    const handleRealtimeChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+    // Real-time para candidatos
+    const handleCandidateChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+      console.log('Realtime candidates event:', payload.eventType, payload)
+      
       if (payload.eventType === "INSERT") {
-        // Candidate insert
-        setCandidates(prev => [...prev, payload.new as Candidate])
+        // Solo agregar si no existe ya (evitar duplicados por la actualización manual)
+        setCandidates(prev => {
+          const exists = prev.find(c => c.id === payload.new.id)
+          if (exists) return prev
+          return [...prev, payload.new as Candidate]
+        })
       }
       if (payload.eventType === "UPDATE") {
         setCandidates((prev) =>
@@ -122,41 +147,89 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const channel = supabase
-      .channel("public:candidates")
-      .on("postgres_changes", { event: "*", schema: "public", table: "candidates" }, handleRealtimeChanges)
+    // Real-time para procesos
+    const handleProcessChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+      console.log('Realtime processes event:', payload.eventType, payload)
+      
+      if (payload.eventType === "INSERT") {
+        setProcesses(prev => {
+          const exists = prev.find(p => p.id === payload.new.id)
+          if (exists) return prev
+          return [...prev, payload.new as Process]
+        })
+      }
+      if (payload.eventType === "UPDATE") {
+        setProcesses(prev => prev.map(p => p.id === payload.new.id ? payload.new as Process : p))
+      }
+      if (payload.eventType === "DELETE") {
+        setProcesses(prev => prev.filter(p => p.id !== payload.old.id))
+      }
+    }
+
+    // Real-time para etapas
+    const handleStageChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+      console.log('Realtime stages event:', payload.eventType, payload)
+      
+      if (payload.eventType === "INSERT") {
+        setStages(prev => {
+          const exists = prev.find(s => s.id === payload.new.id)
+          if (exists) return prev
+          return [...prev, payload.new as Stage]
+        })
+      }
+      if (payload.eventType === "UPDATE") {
+        setStages(prev => prev.map(s => s.id === payload.new.id ? payload.new as Stage : s))
+      }
+      if (payload.eventType === "DELETE") {
+        setStages(prev => prev.filter(s => s.id !== payload.old.id))
+      }
+    }
+
+    // Suscripciones a realtime
+    const candidatesChannel = supabase
+      .channel("realtime:candidates")
+      .on("postgres_changes", { event: "*", schema: "public", table: "candidates" }, handleCandidateChanges)
       .subscribe()
 
-    // Real-time processes
-    const channelProc = supabase
-      .channel("public:processes")
-      .on("postgres_changes", { event: "*", schema: "public", table: "processes" }, (payload) => {
-        if (payload.eventType === "INSERT") setProcesses(prev => [...prev, payload.new as Process])
-        if (payload.eventType === "UPDATE") setProcesses(prev => prev.map(p=>p.id===payload.new.id?payload.new as Process:p))
-        if (payload.eventType === "DELETE") setProcesses(prev => prev.filter(p=>p.id!==payload.old.id))
-      })
+    const processesChannel = supabase
+      .channel("realtime:processes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "processes" }, handleProcessChanges)
+      .subscribe()
+
+    const stagesChannel = supabase
+      .channel("realtime:stages")
+      .on("postgres_changes", { event: "*", schema: "public", table: "stages" }, handleStageChanges)
       .subscribe()
 
     return () => {
-      supabase.removeChannel(channel)
-      supabase.removeChannel(channelProc)
+      supabase.removeChannel(candidatesChannel)
+      supabase.removeChannel(processesChannel)
+      supabase.removeChannel(stagesChannel)
     }
   }, [fetchInitialData])
 
   const moveCandidateToStage = async (candidateId: number, newStageId: number, author = "Usuario") => {
     if (!useSupabase) return
 
-    const currentStage = stages.find((s) => s.id === getCandidate(candidateId)?.current_stage_id)
+    const candidate = getCandidate(candidateId)
+    const currentStage = stages.find((s) => s.id === candidate?.current_stage_id)
     const newStage = stages.find((s) => s.id === newStageId)
-    if (!currentStage || !newStage) return
+    if (!newStage || !candidate) return
 
-    // Actualizar candidato
+    const updateData: any = {
+      current_stage_id: newStageId,
+      last_updated: new Date().toISOString(),
+    }
+
+    // Si el candidato está rechazado y se mueve a una etapa normal, reactivarlo
+    if (candidate.status === "Rechazado") {
+      updateData.status = "Activo"
+    }
+
+    // Actualizar candidato en Supabase
     const { error } = await supabase
       .from("candidates")
-      .update({
-        current_stage_id: newStageId,
-        last_updated: new Date().toISOString(),
-      })
+      .update(updateData)
       .eq("id", candidateId)
 
     if (error) {
@@ -164,15 +237,35 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       return
     }
 
+    // Actualizar estado local inmediatamente
+    setCandidates(prev => 
+      prev.map(c => 
+        c.id === candidateId 
+          ? { ...c, ...updateData }
+          : c
+      )
+    )
+
     // Añadir evento al timeline
-    await addTimelineEvent(candidateId, {
-      type: "stage_change",
-      title: `Movido a ${newStage.name}`,
-      description: `El candidato fue movido de "${currentStage.name}" a "${newStage.name}"`,
-      author,
-      date: new Date().toISOString(),
-      icon: "ArrowRight",
-    })
+    const timelineEvent = candidate.status === "Rechazado" 
+      ? {
+          type: "stage_change" as const,
+          title: "Candidato reactivado",
+          description: `Movido desde Rechazados a "${newStage.name}"`,
+          author,
+          date: new Date().toISOString(),
+          icon: "RotateCcw",
+        }
+      : {
+          type: "stage_change" as const,
+          title: `Movido a ${newStage.name}`,
+          description: currentStage ? `El candidato fue movido de "${currentStage.name}" a "${newStage.name}"` : `Movido a "${newStage.name}"`,
+          author,
+          date: new Date().toISOString(),
+          icon: "ArrowRight",
+        }
+
+    await addTimelineEvent(candidateId, timelineEvent)
   }
 
   const addTimelineEvent = async (candidateId: number, event: Omit<TimelineEvent, "id" | "candidate_id">) => {
@@ -181,11 +274,14 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     const { error } = await supabase.from("timeline").insert([{ candidate_id: candidateId, ...event }])
     if (error) {
       console.error("Error adding timeline event:", error)
+      throw new Error(`Error al agregar evento al timeline: ${error.message}`)
     }
   }
 
   const getCandidatesByStage = (stageId: number) => {
-    return candidates.filter((candidate) => candidate.current_stage_id === stageId)
+    return candidates.filter((candidate) => 
+      candidate.current_stage_id === stageId && candidate.status !== "Rechazado"
+    )
   }
 
   const getCandidate = (candidateId: number) => {
@@ -200,51 +296,197 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
 
   const addCandidate = async (
     candidateData: Omit<Candidate, "id" | "comments" | "status" | "applied_date" | "last_updated">,
-  ) => {
-    if (!useSupabase) return
+  ): Promise<Candidate | undefined> => {
+    if (!useSupabase) return undefined
 
     const currentDate = new Date().toISOString().split("T")[0]
     const newCandidateData = {
       ...candidateData,
       applied_date: currentDate,
       last_updated: currentDate,
+      comments: 0,
+      status: 'Activo'
     }
 
-    const { error } = await supabase.from("candidates").insert([newCandidateData])
+    // Insertar y obtener los datos del candidato creado
+    const { data, error } = await supabase
+      .from("candidates")
+      .insert([newCandidateData])
+      .select()
+      .single()
+
     if (error) {
       console.error("Error adding candidate:", error)
+      throw error
     }
+
+    // Actualizar el estado local inmediatamente
+    setCandidates(prev => [...prev, data])
+
+    // Agregar evento al timeline
+    await addTimelineEvent(data.id, {
+      type: "application",
+      title: "Candidato aplicó al proceso",
+      description: `Se registró en el proceso desde ${candidateData.origen}`,
+      author: "Sistema",
+      date: new Date().toISOString(),
+      icon: "User",
+    })
+
+    return data
   }
 
   const rejectCandidate = async (candidateId: number, reason: string, author = "Usuario") => {
     if (!useSupabase) return
 
-    const { error } = await supabase
-      .from("candidates")
-      .update({ status: "Rechazado", current_stage_id: -1 })
-      .eq("id", candidateId)
+    try {
+      // Mantener el current_stage_id actual, solo cambiar el status
+      const updateData = {
+        status: "Rechazado",
+        last_updated: new Date().toISOString()
+      }
 
-    if (error) {
-      console.error("Error rejecting candidate:", error)
-      return
+      const { error } = await supabase
+        .from("candidates")
+        .update(updateData)
+        .eq("id", candidateId)
+
+      if (error) {
+        console.error("Error rejecting candidate:", error)
+        throw new Error(`Error en base de datos: ${error.message}`)
+      }
+
+      // Actualizar estado local inmediatamente
+      setCandidates(prev => 
+        prev.map(c => 
+          c.id === candidateId 
+            ? { ...c, ...updateData }
+            : c
+        )
+      )
+
+      // Agregar evento al timeline
+      try {
+        await addTimelineEvent(candidateId, {
+          type: "movement",
+          title: "Candidato rechazado",
+          description: `Motivo: ${reason}`,
+          author,
+          date: new Date().toISOString(),
+          icon: "X",
+        })
+      } catch (timelineError) {
+        console.error("Error adding timeline event:", timelineError)
+        // No lanzar error aquí, el candidato ya fue rechazado exitosamente
+      }
+    } catch (error) {
+      console.error("Error in rejectCandidate:", error)
+      throw error
     }
-
-    await addTimelineEvent(candidateId, {
-      type: "movement",
-      title: "Candidato rechazado",
-      description: `Motivo: ${reason}`,
-      author,
-      date: new Date().toISOString(),
-      icon: "X",
-    })
   }
 
   const getRejectedCandidates = () => {
     return candidates.filter((candidate) => candidate.status === "Rechazado")
   }
 
+  const getRejectedCandidatesByProcess = (processId: number) => {
+    return candidates.filter((candidate) => 
+      candidate.status === "Rechazado" && candidate.process_id === processId
+    )
+  }
+
   const getProcess = (processId: number) => {
     return processes.find(p => p.id === processId)
+  }
+
+  const getStagesByProcess = (processId: number) => {
+    return stages.filter(stage => stage.process_id === processId).sort((a, b) => a.order - b.order)
+  }
+
+  const createProcess = async (processData: {
+    title: string
+    description: string
+    manager: string
+    salary_range?: string
+    stages: Array<{ name: string; responsible?: string }>
+  }): Promise<Process> => {
+    if (!useSupabase) {
+      throw new Error("Supabase no está configurado")
+    }
+
+    // Crear el proceso
+    const { data: processResult, error: processError } = await supabase
+      .from('processes')
+      .insert({
+        title: processData.title,
+        description: processData.description,
+        manager: processData.manager,
+        salary_range: processData.salary_range || null,
+        status: 'Activo'
+      })
+      .select()
+      .single()
+
+    if (processError) {
+      throw new Error(`Error al crear proceso: ${processError.message}`)
+    }
+
+    // Crear las etapas
+    const stagesWithOrder = processData.stages.map((stage, index) => ({
+      process_id: processResult.id,
+      name: stage.name,
+      responsible: stage.responsible || null,
+      order: index + 1
+    }))
+
+    const { error: stagesError } = await supabase
+      .from('stages')
+      .insert(stagesWithOrder)
+
+    if (stagesError) {
+      throw new Error(`Error al crear etapas: ${stagesError.message}`)
+    }
+
+    return processResult
+  }
+
+  const updateProcess = async (processId: number, processData: {
+    title: string
+    description: string
+    manager: string
+    salary_range?: string
+    status: string
+  }): Promise<Process | undefined> => {
+    if (!useSupabase) {
+      throw new Error("Supabase no está configurado")
+    }
+
+    // Actualizar el proceso en Supabase
+    const { data: processResult, error: processError } = await supabase
+      .from('processes')
+      .update({
+        title: processData.title,
+        description: processData.description,
+        manager: processData.manager,
+        salary_range: processData.salary_range || null,
+        status: processData.status
+      })
+      .eq('id', processId)
+      .select()
+      .single()
+
+    if (processError) {
+      throw new Error(`Error al actualizar proceso: ${processError.message}`)
+    }
+
+    // Actualizar estado local inmediatamente
+    setProcesses(prev => 
+      prev.map(p => 
+        p.id === processId ? processResult : p
+      )
+    )
+
+    return processResult
   }
 
   return (
@@ -253,6 +495,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         candidates,
         stages,
         processes,
+        loading,
         moveCandidateToStage,
         addTimelineEvent,
         getCandidatesByStage,
@@ -261,7 +504,11 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         addCandidate,
         rejectCandidate,
         getRejectedCandidates,
+        getRejectedCandidatesByProcess,
         getProcess: (id: number) => processes.find(p => p.id === id),
+        getStagesByProcess,
+        createProcess,
+        updateProcess,
       }}
     >
       {children}

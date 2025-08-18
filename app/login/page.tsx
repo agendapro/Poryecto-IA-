@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { LoadingSpinner } from "@/components/ui/loading"
 
 export default function LoginPage() {
   const [email, setEmail] = useState("")
@@ -66,7 +67,14 @@ export default function LoginPage() {
             </div>
             {error && <p className="text-red-500 text-sm">{error}</p>}
             <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Ingresando..." : "Iniciar Sesión"}
+              {loading ? (
+                <div className="flex items-center space-x-2">
+                  <LoadingSpinner size="sm" />
+                  <span>Ingresando...</span>
+                </div>
+              ) : (
+                "Iniciar Sesión"
+              )}
             </Button>
           </form>
         </CardContent>

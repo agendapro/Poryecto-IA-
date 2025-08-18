@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -11,21 +11,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { ArrowLeft, Plus, Trash2, GripVertical, User } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useRecruitment } from "@/lib/recruitment-context"
+import { useAuth } from "@/lib/auth-context"
+import { createClient } from "@/lib/supabase/client"
 
-// Mock data for managers and users
-const mockManagers = [
-  { id: 1, name: "Ana García", email: "ana@empresa.com" },
-  { id: 2, name: "Carlos López", email: "carlos@empresa.com" },
-  { id: 3, name: "María Rodríguez", email: "maria@empresa.com" },
-]
-
-const mockUsers = [
-  { id: 1, name: "Juan Pérez", email: "juan@empresa.com" },
-  { id: 2, name: "Ana García", email: "ana@empresa.com" },
-  { id: 3, name: "Carlos López", email: "carlos@empresa.com" },
-  { id: 4, name: "María Rodríguez", email: "maria@empresa.com" },
-  { id: 5, name: "Luis Martín", email: "luis@empresa.com" },
-]
+interface User {
+  id: string
+  full_name: string
+  role: string
+}
 
 interface Stage {
   id: string
@@ -35,6 +29,12 @@ interface Stage {
 }
 
 export default function NewProcess() {
+  const { createProcess } = useRecruitment()
+  const { user } = useAuth()
+  const supabase = createClient()
+  
+  const [users, setUsers] = useState<User[]>([])
+  const [loading, setLoading] = useState(false)
   const [formData, setFormData] = useState({
     position: "",
     description: "",
@@ -52,16 +52,44 @@ export default function NewProcess() {
     { id: "4", name: "Entrevista Final", responsibleId: "", responsibleName: "" },
   ])
 
+  // Cargar usuarios desde Supabase
+  useEffect(() => {
+    async function fetchUsers() {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, full_name, role')
+          .order('full_name')
+
+        if (error) {
+          console.error('Error fetching users:', error)
+          return
+        }
+
+        setUsers(data || [])
+      } catch (error) {
+        console.error('Error:', error)
+      }
+    }
+
+    fetchUsers()
+  }, [supabase])
+
+  // Filtrar usuarios que pueden ser managers (Administrador, Manager, Reclutador)
+  const managers = users.filter(user => 
+    ['Administrador', 'Manager', 'Reclutador'].includes(user.role)
+  )
+
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
   }
 
   const handleManagerSelect = (managerId: string) => {
-    const manager = mockManagers.find((m) => m.id.toString() === managerId)
+    const manager = managers.find((m) => m.id === managerId)
     setFormData((prev) => ({
       ...prev,
       managerId,
-      managerName: manager?.name || "",
+      managerName: manager?.full_name || "",
     }))
   }
 
@@ -70,11 +98,11 @@ export default function NewProcess() {
       prev.map((stage) => {
         if (stage.id === stageId) {
           if (field === "responsibleId") {
-            const user = mockUsers.find((u) => u.id.toString() === value)
+            const user = users.find((u) => u.id === value)
             return {
               ...stage,
               responsibleId: value,
-              responsibleName: user?.name || "",
+              responsibleName: user?.full_name || "",
             }
           }
           return { ...stage, [field]: value }
@@ -100,23 +128,72 @@ export default function NewProcess() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    if (!formData.position || !formData.description || !formData.managerId) {
+      alert("Por favor completa todos los campos obligatorios")
+      return
+    }
 
-    const newProcessId = Date.now() // Generate unique ID based on timestamp
+    setLoading(true)
 
-    // Mock: Create process
-    console.log("Creating process:", {
-      id: newProcessId,
-      formData,
-      stages,
-    })
+    try {
+      // Construir rango salarial
+      let salaryRange = ""
+      if (formData.salaryMin || formData.salaryMax) {
+        if (formData.salaryMin && formData.salaryMax) {
+          salaryRange = `$${formData.salaryMin} - $${formData.salaryMax}`
+        } else if (formData.salaryMin) {
+          salaryRange = `Desde $${formData.salaryMin}`
+        } else if (formData.salaryMax) {
+          salaryRange = `Hasta $${formData.salaryMax}`
+        }
+      }
 
-    // Show success message (you could add a toast notification here)
-    alert("Proceso creado exitosamente!")
+      // Crear el proceso en Supabase
+      const { data: processData, error: processError } = await supabase
+        .from('processes')
+        .insert({
+          title: formData.position,
+          description: formData.description,
+          manager: formData.managerName,
+          salary_range: salaryRange || null,
+          status: 'Activo'
+        })
+        .select()
+        .single()
 
-    // Redirect back to dashboard to see the new process
-    window.location.href = "/dashboard"
+      if (processError) {
+        throw new Error(`Error al crear proceso: ${processError.message}`)
+      }
+
+      // Crear las etapas del proceso
+      const stagesWithOrder = stages.map((stage, index) => ({
+        process_id: processData.id,
+        name: stage.name,
+        responsible: stage.responsibleName || null,
+        order: index + 1
+      }))
+
+      const { error: stagesError } = await supabase
+        .from('stages')
+        .insert(stagesWithOrder)
+
+      if (stagesError) {
+        throw new Error(`Error al crear etapas: ${stagesError.message}`)
+      }
+
+      // Éxito: mostrar mensaje y redirigir
+      alert("¡Proceso creado exitosamente!")
+      window.location.href = "/dashboard"
+      
+    } catch (error) {
+      console.error('Error creating process:', error)
+      alert(`Error al crear proceso: ${error instanceof Error ? error.message : 'Error desconocido'}`)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -165,9 +242,12 @@ export default function NewProcess() {
                       <SelectValue placeholder="Seleccionar manager" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockManagers.map((manager) => (
-                        <SelectItem key={manager.id} value={manager.id.toString()}>
-                          {manager.name}
+                      {managers.map((manager) => (
+                        <SelectItem key={manager.id} value={manager.id}>
+                          <div className="flex flex-col">
+                            <span>{manager.full_name}</span>
+                            <span className="text-xs text-muted-foreground">{manager.role}</span>
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -271,9 +351,12 @@ export default function NewProcess() {
                               <SelectValue placeholder="Seleccionar responsable" />
                             </SelectTrigger>
                             <SelectContent>
-                              {mockUsers.map((user) => (
-                                <SelectItem key={user.id} value={user.id.toString()}>
-                                  {user.name}
+                              {users.map((user) => (
+                                <SelectItem key={user.id} value={user.id}>
+                                  <div className="flex flex-col">
+                                    <span>{user.full_name}</span>
+                                    <span className="text-xs text-muted-foreground">{user.role}</span>
+                                  </div>
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -306,9 +389,10 @@ export default function NewProcess() {
             </Button>
             <Button
               type="submit"
+              disabled={loading}
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
             >
-              Crear Proceso
+              {loading ? "Creando..." : "Crear Proceso"}
             </Button>
           </div>
         </form>

@@ -148,6 +148,28 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 -- Paso 5: Inserción de Datos de Ejemplo
 -- =================================================================
 
+-- Crear perfil de administrador para usuario específico (si existe)
+INSERT INTO public.profiles (id, full_name, role)
+SELECT id, 'Jorge Navarro', 'Administrador'
+FROM auth.users 
+WHERE email = 'jorgenavarro@agendapro.com'
+ON CONFLICT (id) DO UPDATE SET 
+    full_name = EXCLUDED.full_name,
+    role = EXCLUDED.role;
+
+-- Crear perfiles para cualquier usuario existente sin perfil
+INSERT INTO public.profiles (id, full_name, role)
+SELECT id,
+       COALESCE(raw_user_meta_data->>'full_name', email),
+       'Reclutador'
+FROM auth.users AS u
+WHERE NOT EXISTS (
+  SELECT 1 
+  FROM public.profiles p 
+  WHERE p.id = u.id
+)
+ON CONFLICT (id) DO NOTHING;
+
 -- Insertar un proceso de ejemplo
 INSERT INTO public.processes (id, title, description, manager, salary_range, status)
 OVERRIDING SYSTEM VALUE
@@ -208,7 +230,12 @@ CREATE POLICY "Los usuarios pueden actualizar su propio perfil." ON public.profi
 
 -- Políticas para 'processes', 'stages', 'candidates', 'timeline'
 CREATE POLICY "Permitir lectura a usuarios autenticados." ON public.processes FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Permitir inserción a usuarios autenticados." ON public.processes FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Permitir actualización a usuarios autenticados." ON public.processes FOR UPDATE TO authenticated USING (true);
+
 CREATE POLICY "Permitir lectura a usuarios autenticados." ON public.stages FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Permitir inserción a usuarios autenticados." ON public.stages FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Permitir actualización a usuarios autenticados." ON public.stages FOR UPDATE TO authenticated USING (true);
 CREATE POLICY "Permitir lectura a usuarios autenticados." ON public.candidates FOR SELECT TO authenticated USING (true);
 CREATE POLICY "Permitir inserción a usuarios autenticados." ON public.candidates FOR INSERT TO authenticated WITH CHECK (true);
 CREATE POLICY "Permitir actualización a usuarios autenticados." ON public.candidates FOR UPDATE TO authenticated USING (true);

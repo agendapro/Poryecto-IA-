@@ -19,8 +19,12 @@ import {
   Send,
   MoreHorizontal,
   X,
+  Eye,
+  EyeOff,
 } from "lucide-react"
 import { useRecruitment, type TimelineEvent } from "@/lib/recruitment-context"
+import { useAuth } from "@/lib/auth-context"
+import { Loading } from "@/components/ui/loading"
 import { createClient } from "@/lib/supabase/client"
 import withAuth from "@/components/withAuth"
 
@@ -28,77 +32,141 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = React.use(params)
   const candidateId = Number.parseInt(id)
 
-  const { getCandidate, getNextStage, moveCandidateToStage, addTimelineEvent, stages, rejectCandidate } =
+  const { getCandidate, getNextStage, moveCandidateToStage, addTimelineEvent, stages, rejectCandidate, getProcess, getStagesByProcess, loading } =
     useRecruitment()
+  const { profile } = useAuth()
   const candidate = getCandidate(candidateId)
+  const process = candidate ? getProcess(candidate.process_id) : null
+  const processStages = candidate ? getStagesByProcess(candidate.process_id) : []
 
   const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const [newComment, setNewComment] = useState("")
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
+  const [showAllComments, setShowAllComments] = useState(false)
+  const [visibleComments, setVisibleComments] = useState<Set<number>>(new Set())
 
-  useEffect(() => {
+  const fetchTimeline = async () => {
+    if (!candidate) return
     const supabase = createClient()
-    const fetchTimeline = async () => {
-      if (!candidate) return
-      const { data, error } = await supabase
-        .from("timeline")
-        .select("*")
-        .eq("candidate_id", candidate.id)
-        .order("date", { ascending: false })
+    const { data, error } = await supabase
+      .from("timeline")
+      .select("*")
+      .eq("candidate_id", candidate.id)
+      .order("date", { ascending: true })
 
-      if (error) {
-        console.error("Error fetching timeline:", error)
-      } else {
-        setTimeline(data || [])
-      }
+    if (error) {
+      console.error("Error fetching timeline:", error)
+    } else {
+      setTimeline(data || [])
     }
-
-    fetchTimeline()
-  }, [candidate])
-
-  if (!candidate) {
-    return <div>Cargando candidato...</div>
   }
 
-  const currentStage = stages.find((s) => s.id === candidate.current_stage_id)
-  const nextStage = getNextStage(candidate.current_stage_id)
+  useEffect(() => {
+    if (candidate) {
+      fetchTimeline()
+    }
+  }, [candidate])
 
-  const handleMoveToNextStage = () => {
+  // Mostrar loading mientras se cargan los datos
+  if (loading) {
+    return <Loading fullScreen text="Cargando candidato..." size="lg" />
+  }
+
+  // Solo mostrar "no encontrado" si ya terminó de cargar y realmente no existe
+  if (!candidate) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-foreground">Candidato no encontrado</h1>
+          <p className="text-muted-foreground">El candidato que buscas no existe o ha sido eliminado.</p>
+          <Button 
+            variant="outline" 
+            onClick={() => window.history.back()}
+            className="mt-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Volver
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  const currentStage = processStages.find((s) => s.id === candidate.current_stage_id)
+  const nextStage = processStages.find((s) => s.order === (currentStage?.order ?? 0) + 1)
+
+  const handleMoveToNextStage = async () => {
     if (nextStage) {
-      moveCandidateToStage(candidate.id, nextStage.id, "Ana García")
+      try {
+        await moveCandidateToStage(candidate.id, nextStage.id, profile?.full_name || "Usuario")
+        // Recargar timeline
+        await fetchTimeline()
+      } catch (error) {
+        console.error('Error moving candidate:', error)
+        alert("Error al mover candidato. Por favor, intenta de nuevo.")
+      }
     }
   }
 
   const handleAddComment = async () => {
     if (newComment.trim()) {
-      await addTimelineEvent(candidate.id, {
-        type: "comment",
-        title: "Nuevo comentario",
-        description: newComment,
-        author: "Ana García",
-        date: new Date().toISOString(),
-        icon: "MessageCircle",
-      })
-      // Volver a cargar el timeline para mostrar el nuevo comentario
-      const supabase = createClient()
-      const { data } = await supabase
-        .from("timeline")
-        .select("*")
-        .eq("candidate_id", candidate.id)
-        .order("date", { ascending: false })
-      setTimeline(data || [])
-      setNewComment("")
+      try {
+        await addTimelineEvent(candidate.id, {
+          type: "comment",
+          title: "",
+          description: newComment,
+          author: profile?.full_name || "Usuario",
+          date: new Date().toISOString(),
+          icon: "MessageCircle",
+        })
+        // Volver a cargar el timeline para mostrar el nuevo comentario
+        await fetchTimeline()
+        setNewComment("")
+      } catch (error) {
+        console.error('Error adding comment:', error)
+        alert("Error al agregar comentario. Por favor, intenta de nuevo.")
+      }
     }
   }
 
-  const handleRejectCandidate = () => {
+  const handleRejectCandidate = async () => {
     if (rejectReason.trim()) {
-      rejectCandidate(candidate.id, rejectReason, "Ana García")
-      setIsRejectModalOpen(false)
-      setRejectReason("")
-      // Redirect back to process view
-      window.location.href = "/processes/1"
+      try {
+        await rejectCandidate(candidate.id, rejectReason, profile?.full_name || "Usuario")
+        setIsRejectModalOpen(false)
+        setRejectReason("")
+        alert("Candidato rechazado exitosamente")
+        // Redirect back to process view
+        window.location.href = `/processes/${candidate.process_id}`
+      } catch (error) {
+        console.error('Error rejecting candidate:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+        alert(`Error al rechazar candidato: ${errorMessage}`)
+      }
+    }
+  }
+
+  const toggleCommentVisibility = (commentId: number) => {
+    setVisibleComments(prev => {
+      const newSet = new Set(prev)
+      if (newSet.has(commentId)) {
+        newSet.delete(commentId)
+      } else {
+        newSet.add(commentId)
+      }
+      return newSet
+    })
+  }
+
+  const toggleAllComments = () => {
+    if (showAllComments) {
+      setVisibleComments(new Set())
+      setShowAllComments(false)
+    } else {
+      const allCommentIds = timeline.filter(event => event.type === "comment").map(event => event.id)
+      setVisibleComments(new Set(allCommentIds))
+      setShowAllComments(true)
     }
   }
 
@@ -108,7 +176,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" onClick={() => (window.location.href = "/processes/1")}>
+            <Button variant="ghost" onClick={() => (window.location.href = `/processes/${candidate.process_id}`)}>
               <ArrowLeft className="h-4 w-4 mr-2" />
               Volver al proceso
             </Button>
@@ -124,7 +192,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
               </Avatar>
               <div>
                 <h1 className="text-2xl font-bold text-foreground">{candidate.name}</h1>
-                <p className="text-muted-foreground">Desarrollador Frontend Senior</p>
+                <p className="text-muted-foreground">{process?.title || "Candidato"}</p>
               </div>
             </div>
           </div>
@@ -243,47 +311,87 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                   <CardTitle>Comentarios</CardTitle>
                   <span className="text-sm text-muted-foreground">{timeline.length} eventos en el timeline</span>
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={toggleAllComments}
+                  className="flex items-center space-x-2"
+                >
+                  {showAllComments ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  <span>{showAllComments ? "Ocultar todos" : "Mostrar todos"}</span>
+                </Button>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {timeline.map((event) => (
-                  <div key={event.id} className="flex space-x-3 group">
-                    <div className="flex flex-col items-center">
-                      <span className="text-xs text-muted-foreground mb-2">
-                        {new Date(event.date).toLocaleDateString("es-ES", { month: "short", day: "numeric" })}
-                      </span>
-                    </div>
-
-                    <Avatar className="h-10 w-10 flex-shrink-0">
-                      <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white text-sm font-semibold">
-                        {event.author
-                          .split(" ")
-                          .map((n) => n[0])
-                          .join("")}
-                      </AvatarFallback>
-                    </Avatar>
-
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center space-x-2 mb-1">
-                        <span className="font-semibold text-foreground">{event.author}</span>
-                        <span className="text-sm text-muted-foreground">{event.title}</span>
+                {timeline.map((event) => {
+                  const isComment = event.type === "comment"
+                  const isVisible = !isComment || visibleComments.has(event.id)
+                  
+                  return (
+                    <div key={event.id} className="flex space-x-3 group">
+                      <div className="flex flex-col items-center">
+                        <span className="text-xs text-muted-foreground mb-2">
+                          {new Date(event.date).toLocaleDateString("es-ES", { month: "short", day: "numeric" })}
+                        </span>
                       </div>
 
-                      {event.description && <div className="text-sm text-foreground">{event.description}</div>}
-                    </div>
+                      <Avatar className="h-10 w-10 flex-shrink-0">
+                        <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white text-sm font-semibold">
+                          {event.author
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")}
+                        </AvatarFallback>
+                      </Avatar>
 
-                    <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center space-x-2 mb-1">
+                          <span className="font-semibold text-foreground">{event.author}</span>
+                          {event.title && <span className="text-sm text-muted-foreground">{event.title}</span>}
+                        </div>
+
+                        {isComment ? (
+                          <div className="flex items-center space-x-2">
+                            {isVisible ? (
+                              <div className="text-sm text-foreground">{event.description}</div>
+                            ) : (
+                              <div className="text-sm text-muted-foreground italic">Comentario privado</div>
+                            )}
+                          </div>
+                        ) : (
+                          event.description && <div className="text-sm text-foreground">{event.description}</div>
+                        )}
+                      </div>
+
+                      {isComment ? (
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          onClick={() => toggleCommentVisibility(event.id)}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        >
+                          {isVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </Button>
+                      ) : (
+                        <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  )
+                })}
 
                 {/* Add Comment Input */}
                 <div className="flex space-x-3 pt-4 border-t">
                   <Avatar className="h-10 w-10">
-                    <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white">
-                      AG
+                    <AvatarFallback className="bg-gradient-to-br from-purple-500 to-blue-500 text-white text-sm font-semibold">
+                      {profile?.full_name
+                        ? profile.full_name
+                            .split(" ")
+                            .map((n) => n[0])
+                            .join("")
+                        : "U"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1">

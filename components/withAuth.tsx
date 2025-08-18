@@ -1,6 +1,7 @@
 "use client"
 
 import { useAuth } from "@/lib/auth-context"
+import { Loading } from "@/components/ui/loading"
 import { useRouter } from "next/navigation"
 import { useEffect } from "react"
 import type { ComponentType } from "react"
@@ -17,7 +18,7 @@ export default function withAuth<P extends object>(Component: ComponentType<P>) 
     }, [session, loading, router])
 
     if (loading) {
-      return <div>Cargando...</div> // O un componente de esqueleto/spinner
+      return <Loading fullScreen text="Verificando autenticación..." size="lg" />
     }
 
     if (!session) {

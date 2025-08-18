@@ -2,6 +2,7 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/lib/auth-context"
+import { Loading } from "@/components/ui/loading"
 
 export default function HomePage() {
   const { session, loading } = useAuth()
@@ -18,5 +19,5 @@ export default function HomePage() {
   }, [session, loading, router])
 
   // Muestra un estado de carga mientras se verifica la sesión
-  return <div>Cargando...</div>
+  return <Loading fullScreen text="Iniciando RecruitPro..." size="xl" />
 }

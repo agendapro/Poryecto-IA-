@@ -2,27 +2,24 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useState, use } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+
 import { Input } from "@/components/ui/input"
 import {
   ArrowLeft,
   Plus,
-  MoreHorizontal,
-  MessageSquare,
-  MapPin,
   Edit,
   Upload,
   FileText,
-  ChevronDown,
-  ChevronUp,
   X,
   Clock,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react"
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { Loading } from "@/components/ui/loading"
 import {
   Dialog,
   DialogContent,
@@ -34,23 +31,61 @@ import {
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useRecruitment } from "@/lib/recruitment-context"
+import { useAuth } from "@/lib/auth-context"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import withAuth from "@/components/withAuth"
-import { useParams } from "react-router-dom"
 import { useRouter } from "next/navigation"
 
-export default function ProcessDetail() {
-  const { stages, processes, getProcess, getCandidatesByStage, moveCandidateToStage, addCandidate, rejectCandidate, getRejectedCandidates, getCandidate } = useRecruitment()
+function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { stages, processes, getProcess, getCandidatesByStage, moveCandidateToStage, addCandidate, rejectCandidate, getRejectedCandidates, getRejectedCandidatesByProcess, getCandidate, getStagesByProcess, loading } = useRecruitment()
+  const { profile } = useAuth()
   const [isAddCandidateOpen, setIsAddCandidateOpen] = useState(false)
   const [selectedStage, setSelectedStage] = useState<number | null>(null)
   const [draggedCandidate, setDraggedCandidate] = useState<number | null>(null)
+  const [candidateToReject, setCandidateToReject] = useState<number | null>(null)
+  const [rejectReason, setRejectReason] = useState("")
+  const [isRejectedExpanded, setIsRejectedExpanded] = useState(false)
+  const [isAddingCandidate, setIsAddingCandidate] = useState(false)
+  const [dragOverStage, setDragOverStage] = useState<number | null>(null)
+  const [dragOverReject, setDragOverReject] = useState(false)
+  const [candidateForm, setCandidateForm] = useState({
+    name: "",
+    email: "",
+    phone: "",
+    location: "",
+    origen: "",
+    cv: null as File | null,
+  })
+  
   const router = useRouter()
-  const { id } = useParams()
+  const { id } = use(params)
   const processId = Number(id)
   const process = getProcess(processId)
+  const processStages = getStagesByProcess(processId)
 
+  // Mostrar loading mientras se cargan los datos
+  if (loading) {
+    return <Loading fullScreen text="Cargando proceso..." size="lg" />
+  }
+
+  // Solo mostrar "no encontrado" si ya terminó de cargar y realmente no existe
   if (!process) {
-    return <div className="p-6">Proceso no encontrado</div>
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-foreground">Proceso no encontrado</h1>
+          <p className="text-muted-foreground">El proceso que buscas no existe o ha sido eliminado.</p>
+          <Button 
+            variant="outline" 
+            onClick={() => router.push('/dashboard')}
+            className="mt-4"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Volver al Dashboard
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   const handleAddCandidate = (stageId: number) => {
@@ -58,24 +93,41 @@ export default function ProcessDetail() {
     setIsAddCandidateOpen(true)
   }
 
-  const handleSubmitCandidate = () => {
+  const handleSubmitCandidate = async () => {
     if (candidateForm.name && candidateForm.email && candidateForm.origen && selectedStage) {
-      addCandidate({
-        ...candidateForm,
-        current_stage_id: selectedStage,
-      })
+      setIsAddingCandidate(true)
+      try {
+        await addCandidate({
+          name: candidateForm.name,
+          email: candidateForm.email,
+          phone: candidateForm.phone,
+          location: candidateForm.location,
+          origen: candidateForm.origen,
+          cv: candidateForm.cv ? candidateForm.cv.name : null, // Por ahora solo guardamos el nombre del archivo
+          process_id: processId,
+          current_stage_id: selectedStage,
+        })
 
-      // Reset form and close dialog
-      setCandidateForm({
-        name: "",
-        email: "",
-        phone: "",
-        location: "",
-        origen: "",
-        cv: null,
-      })
-      setIsAddCandidateOpen(false)
-      setSelectedStage(null)
+        // Reset form and close dialog
+        setCandidateForm({
+          name: "",
+          email: "",
+          phone: "",
+          location: "",
+          origen: "",
+          cv: null,
+        })
+        setIsAddCandidateOpen(false)
+        setSelectedStage(null)
+        
+        // Mostrar mensaje de éxito
+        alert("¡Candidato agregado exitosamente!")
+      } catch (error) {
+        console.error('Error adding candidate:', error)
+        alert("Error al agregar candidato. Por favor, intenta de nuevo.")
+      } finally {
+        setIsAddingCandidate(false)
+      }
     }
   }
 
@@ -108,24 +160,71 @@ export default function ProcessDetail() {
     e.dataTransfer.effectAllowed = "move"
   }
 
-  const handleDragOver = (e: React.DragEvent) => {
+  const handleDragOver = (e: React.DragEvent, stageId: number) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = "move"
+    setDragOverStage(stageId)
   }
 
-  const handleDrop = (e: React.DragEvent, targetStageId: number) => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Solo limpiar si realmente salimos del contenedor
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverStage(null)
+    }
+  }
+
+  const handleDrop = async (e: React.DragEvent, targetStageId: number) => {
     e.preventDefault()
     if (draggedCandidate) {
       const candidate = getCandidate(draggedCandidate)
-      if (candidate && candidate.currentStageId !== targetStageId) {
-        moveCandidateToStage(draggedCandidate, targetStageId, "Ana García")
+      if (candidate && (candidate.current_stage_id !== targetStageId || candidate.status === "Rechazado")) {
+        try {
+          await moveCandidateToStage(draggedCandidate, targetStageId, profile?.full_name || "Usuario")
+          
+          // Mostrar mensaje específico si se reactivó un candidato rechazado
+          if (candidate.status === "Rechazado") {
+            alert("Candidato reactivado y movido exitosamente")
+          }
+        } catch (error) {
+          console.error('Error moving candidate:', error)
+          alert("Error al mover candidato. Por favor, intenta de nuevo.")
+        }
       }
     }
     setDraggedCandidate(null)
+    setDragOverStage(null)
+  }
+
+  const handleRejectDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = "move"
+    setDragOverReject(true)
+  }
+
+  const handleRejectDragLeave = (e: React.DragEvent) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOverReject(false)
+    }
+  }
+
+  const handleRejectDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    if (draggedCandidate) {
+      const candidate = getCandidate(draggedCandidate)
+      if (candidate && candidate.status !== "Rechazado") {
+        // Abrir diálogo para obtener motivo del rechazo
+        setCandidateToReject(draggedCandidate)
+        setRejectReason("")
+      }
+    }
+    setDraggedCandidate(null)
+    setDragOverReject(false)
   }
 
   const handleDragEnd = () => {
     setDraggedCandidate(null)
+    setDragOverStage(null)
+    setDragOverReject(false)
   }
 
   const handleRejectCandidate = (candidateId: number) => {
@@ -133,11 +232,18 @@ export default function ProcessDetail() {
     setRejectReason("")
   }
 
-  const confirmRejectCandidate = () => {
+  const confirmRejectCandidate = async () => {
     if (candidateToReject && rejectReason.trim()) {
-      rejectCandidate(candidateToReject, rejectReason, "Ana García")
-      setCandidateToReject(null)
-      setRejectReason("")
+      try {
+        await rejectCandidate(candidateToReject, rejectReason, profile?.full_name || "Usuario")
+        setCandidateToReject(null)
+        setRejectReason("")
+        alert("Candidato rechazado exitosamente")
+      } catch (error) {
+        console.error('Error rejecting candidate:', error)
+        const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+        alert(`Error al rechazar candidato: ${errorMessage}`)
+      }
     }
   }
 
@@ -149,14 +255,7 @@ export default function ProcessDetail() {
     return diffDays
   }
 
-  const [candidateForm, setCandidateForm] = useState({
-    name: "",
-    email: "",
-    phone: "",
-    location: "",
-    origen: "",
-    cv: null as File | null,
-  })
+
 
   return (
     <div className="min-h-screen bg-background">
@@ -178,7 +277,7 @@ export default function ProcessDetail() {
             <Badge className="bg-green-100 text-green-800">
               {process.status}
             </Badge>
-            <Button variant="outline">
+            <Button variant="outline" onClick={() => router.push(`/processes/${processId}/edit`)}>
               <Edit className="h-4 w-4 mr-2" />
               Editar
             </Button>
@@ -219,14 +318,19 @@ export default function ProcessDetail() {
             <CardDescription>Arrastra y suelta candidatos entre etapas para actualizar su estado</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 lg:grid-cols-6 gap-6">
-              {stages.map((stage) => {
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {processStages.map((stage) => {
                 const stageCandidates = getCandidatesByStage(stage.id)
                 return (
                   <div
                     key={stage.id}
-                    className="bg-muted/50 rounded-lg p-4 min-h-[400px]"
-                    onDragOver={handleDragOver}
+                    className={`bg-muted/50 rounded-lg p-4 min-h-[400px] transition-all duration-200 ${
+                      dragOverStage === stage.id 
+                        ? 'bg-blue-50 border-2 border-blue-300 border-dashed scale-105' 
+                        : 'border-2 border-transparent'
+                    }`}
+                    onDragOver={(e) => handleDragOver(e, stage.id)}
+                    onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, stage.id)}
                   >
                     <div className="flex items-center justify-between mb-4">
@@ -253,21 +357,18 @@ export default function ProcessDetail() {
                             onDragEnd={handleDragEnd}
                             onClick={() => handleCandidateClick(candidate.id)}
                           >
-                            <CardContent className="p-4">
-                              <div className="flex items-start justify-between mb-2">
-                                <div>
-                                  <h4 className="font-medium text-sm text-foreground">{candidate.name}</h4>
-                                  <p className="text-xs text-muted-foreground">{candidate.email}</p>
-                                </div>
+                            <CardContent className="p-3">
+                              <div className="mb-3">
+                                <h4 className="font-medium text-sm text-foreground">{candidate.name}</h4>
                               </div>
 
-                              <div className="flex items-end justify-between text-xs text-muted-foreground mt-4">
-                                <div className="space-y-1">
-                                  <div>Creado: {new Date(candidate.applied_date).toLocaleDateString("es-ES")}</div>
-                                  <div>Actualizado: {new Date(candidate.last_updated).toLocaleDateString("es-ES")}</div>
-                                </div>
+                              <div className="space-y-1 text-xs text-muted-foreground">
+                                <div>Creado: {new Date(candidate.applied_date).toLocaleDateString("es-ES")}</div>
+                                <div>Actualizado: {new Date(candidate.last_updated).toLocaleDateString("es-ES")}</div>
+                              </div>
 
-                                {daysSinceUpdate > 30 && (
+                              {daysSinceUpdate > 30 && (
+                                <div className="mt-3 flex justify-end">
                                   <TooltipProvider>
                                     <Tooltip>
                                       <TooltipTrigger>
@@ -281,12 +382,8 @@ export default function ProcessDetail() {
                                       </TooltipContent>
                                     </Tooltip>
                                   </TooltipProvider>
-                                )}
-                              </div>
-                              <div className="flex items-center space-x-1 text-xs text-muted-foreground mt-2">
-                                <MessageSquare className="h-3 w-3" />
-                                <span>{candidate.comments}</span>
-                              </div>
+                                </div>
+                              )}
                             </CardContent>
                           </Card>
                         )
@@ -299,7 +396,17 @@ export default function ProcessDetail() {
           </CardContent>
         </Card>
 
-        <Card>
+        {/* Sección Rechazados - Lista Desplegable y Zona de Drop Unificada */}
+        <Card 
+          className={`transition-all duration-200 ${
+            dragOverReject 
+              ? 'border-red-500 bg-red-50 scale-[1.02] shadow-lg' 
+              : 'border-red-200'
+          }`}
+          onDragOver={handleRejectDragOver}
+          onDragLeave={handleRejectDragLeave}
+          onDrop={handleRejectDrop}
+        >
           <CardHeader
             className="cursor-pointer hover:bg-muted/50 transition-colors"
             onClick={() => setIsRejectedExpanded(!isRejectedExpanded)}
@@ -308,7 +415,7 @@ export default function ProcessDetail() {
               <div className="flex items-center space-x-2">
                 <CardTitle className="text-red-600">Rechazados</CardTitle>
                 <Badge variant="destructive" className="bg-red-100 text-red-800">
-                  {getRejectedCandidates().length} candidatos
+                  {getRejectedCandidatesByProcess(processId).length} candidatos
                 </Badge>
               </div>
               {isRejectedExpanded ? (
@@ -317,63 +424,73 @@ export default function ProcessDetail() {
                 <ChevronDown className="h-5 w-5 text-muted-foreground" />
               )}
             </div>
-            <CardDescription>Candidatos que han sido rechazados del proceso</CardDescription>
+            <CardDescription>
+              {draggedCandidate ? (
+                <span className="text-red-600 font-medium">
+                  ⬇ Suelta aquí para rechazar candidato
+                </span>
+              ) : (
+                "Candidatos que han sido rechazados del proceso"
+              )}
+            </CardDescription>
           </CardHeader>
 
           {isRejectedExpanded && (
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {getRejectedCandidates().map((candidate) => (
-                  <Card key={candidate.id} className="bg-red-50 border-red-200">
-                    <CardContent className="p-4">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center space-x-2">
-                          <Avatar className="h-8 w-8">
-                            <AvatarImage src={`/placeholder-32px.png?height=32&width=32`} />
-                            <AvatarFallback>
-                              {candidate.name
-                                .split(" ")
-                                .map((n) => n[0])
-                                .join("")}
-                            </AvatarFallback>
-                          </Avatar>
+                {getRejectedCandidatesByProcess(processId).map((candidate) => {
+                  const daysSinceUpdate = getDaysSinceUpdate(candidate.last_updated)
+                  return (
+                    <Card 
+                      key={candidate.id} 
+                      className={`bg-red-50 border-red-200 cursor-pointer hover:shadow-md transition-all ${
+                        draggedCandidate === candidate.id ? "opacity-50 scale-95" : ""
+                      }`}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, candidate.id)}
+                      onDragEnd={handleDragEnd}
+                      onClick={() => handleCandidateClick(candidate.id)}
+                    >
+                      <CardContent className="p-3">
+                        <div className="flex items-start justify-between mb-2">
                           <div>
                             <h4 className="font-medium text-sm text-foreground">{candidate.name}</h4>
-                            <p className="text-xs text-muted-foreground">{candidate.email}</p>
                           </div>
+                          <Badge variant="destructive" className="text-xs">
+                            Rechazado
+                          </Badge>
                         </div>
-                        <Badge variant="destructive" className="text-xs">
-                          Rechazado
-                        </Badge>
-                      </div>
 
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <div className="flex items-center space-x-1">
-                          <MapPin className="h-3 w-3" />
-                          <span>{candidate.location}</span>
+                        <div className="space-y-1 text-xs text-muted-foreground">
+                          <div>Creado: {new Date(candidate.applied_date).toLocaleDateString("es-ES")}</div>
+                          <div>Actualizado: {new Date(candidate.last_updated).toLocaleDateString("es-ES")}</div>
                         </div>
-                        <div className="flex items-center space-x-1">
-                          <MessageSquare className="h-3 w-3" />
-                          <span>{candidate.comments}</span>
-                        </div>
-                      </div>
 
-                      <div className="mt-2 text-xs text-muted-foreground">
-                        Aplicó: {new Date(candidate.applied_date).toLocaleDateString("es-ES")}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+                        {daysSinceUpdate > 30 && (
+                          <div className="mt-3 flex justify-end">
+                            <Badge variant="destructive" className="flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              <span>+30d</span>
+                            </Badge>
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )
+                })}
 
-                {getRejectedCandidates().length === 0 && (
-                  <div className="col-span-full text-center py-8 text-muted-foreground">
-                    No hay candidatos rechazados
+                {getRejectedCandidatesByProcess(processId).length === 0 && (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    <X className="h-12 w-12 text-red-300 mx-auto mb-4" />
+                    <p className="text-lg font-medium">No hay candidatos rechazados</p>
+                    <p className="text-sm">Arrastra candidatos aquí para rechazarlos</p>
                   </div>
                 )}
               </div>
             </CardContent>
           )}
         </Card>
+
       </div>
 
       {/* Add Candidate Dialog */}
@@ -385,7 +502,7 @@ export default function ProcessDetail() {
               Completa la información del nuevo candidato
               {selectedStage && (
                 <span className="block mt-1 text-sm font-medium text-purple-600 dark:text-purple-400">
-                  Se agregará a: {stages.find((s) => s.id === selectedStage)?.name}
+                  Se agregará a: {processStages.find((s) => s.id === selectedStage)?.name}
                 </span>
               )}
             </DialogDescription>
@@ -492,10 +609,10 @@ export default function ProcessDetail() {
             </Button>
             <Button
               onClick={handleSubmitCandidate}
-              disabled={!candidateForm.name || !candidateForm.email || !candidateForm.origen}
+              disabled={!candidateForm.name || !candidateForm.email || !candidateForm.origen || isAddingCandidate}
               className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 dark:from-purple-500 dark:to-blue-500 dark:hover:from-purple-600 dark:hover:to-blue-600"
             >
-              Agregar Candidato
+              {isAddingCandidate ? "Agregando..." : "Agregar Candidato"}
             </Button>
           </DialogFooter>
         </DialogContent>
