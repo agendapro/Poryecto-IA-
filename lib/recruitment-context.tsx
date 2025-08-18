@@ -100,6 +100,7 @@ interface RecruitmentContextType {
     salary_range?: string
     status: string
   }) => Promise<Process | undefined>
+  deleteProcess: (processId: number) => Promise<void>
   uploadCV: (file: File, candidateId?: number) => Promise<string>
   downloadCV: (cvUrl: string) => Promise<void>
   updateCandidateCV: (candidateId: number, cvUrl: string) => Promise<void>
@@ -667,6 +668,51 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
     return processResult
   }
 
+  const deleteProcess = async (processId: number): Promise<void> => {
+    console.log('🔄 deleteProcess called with processId:', processId)
+    
+    if (!useSupabase) {
+      console.error('❌ Supabase not configured')
+      throw new Error("Supabase no está configurado")
+    }
+
+    console.log('🗄️ Attempting to delete from Supabase...')
+    
+    // Eliminar el proceso de Supabase (CASCADE eliminará stages, candidates y timeline relacionados)
+    const { error: processError } = await supabase
+      .from('processes')
+      .delete()
+      .eq('id', processId)
+
+    if (processError) {
+      console.error('💥 Supabase delete error:', processError)
+      throw new Error(`Error al eliminar proceso: ${processError.message}`)
+    }
+
+    console.log('✅ Supabase delete successful, updating local state...')
+
+    // Actualizar el estado local inmediatamente
+    setProcesses(prev => {
+      const newProcesses = prev.filter(p => p.id !== processId)
+      console.log('📊 Processes before:', prev.length, 'after:', newProcesses.length)
+      return newProcesses
+    })
+    
+    setCandidates(prev => {
+      const newCandidates = prev.filter(c => c.process_id !== processId)
+      console.log('👥 Candidates before:', prev.length, 'after:', newCandidates.length)
+      return newCandidates
+    })
+    
+    setStages(prev => {
+      const newStages = prev.filter(s => s.process_id !== processId)
+      console.log('🏗️ Stages before:', prev.length, 'after:', newStages.length)
+      return newStages
+    })
+    
+    console.log('🎉 Process deleted successfully:', processId)
+  }
+
   const getNotificationsForUser = (userName: string): Notification[] => {
     return notifications.filter(notification => 
       notification.recipient_name === userName
@@ -808,6 +854,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         getStagesByProcess,
         createProcess,
         updateProcess,
+        deleteProcess,
         uploadCV,
         downloadCV,
         updateCandidateCV,

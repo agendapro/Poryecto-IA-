@@ -53,7 +53,42 @@ function DashboardPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("Todos")
   const { user, profile, signOut } = useAuth()
-  const { processes, candidates, stages, loading } = useRecruitment()
+  const { processes, candidates, stages, loading, deleteProcess } = useRecruitment()
+
+  // Función para manejar eliminación con confirmación
+  const handleDeleteProcess = async (processId: number, processTitle: string) => {
+    console.log('🗑️ handleDeleteProcess called with:', processId, processTitle)
+    
+    try {
+      console.log('🔔 Showing confirmation dialog...')
+      const confirmed = window.confirm(
+        `¿Eliminar el proceso "${processTitle}"?\n\n` +
+        `Esta acción NO SE PUEDE DESHACER.\n\n` +
+        `Se eliminará:\n` +
+        `✗ El proceso completo\n` +
+        `✗ Todas las etapas\n` +
+        `✗ Todos los candidatos\n` +
+        `✗ Todo el historial\n\n` +
+        `¿Continuar con la eliminación?`
+      )
+      
+      console.log('✅ Confirmation result:', confirmed)
+      
+      if (confirmed) {
+        console.log('🚀 Starting deletion process...')
+        await deleteProcess(processId)
+        console.log('🎉 Process deleted successfully')
+        // Mostrar mensaje de éxito
+        alert(`Proceso "${processTitle}" eliminado exitosamente`)
+      } else {
+        console.log('❌ User cancelled deletion')
+      }
+    } catch (error) {
+      console.error('💥 Error deleting process:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`Error al eliminar proceso: ${errorMessage}`)
+    }
+  }
 
   // Crear procesos enriquecidos con estadísticas
   const enrichedProcesses = useMemo(() => {
@@ -63,7 +98,8 @@ function DashboardPage() {
       
       return {
         id: process.id,
-        position: process.title,
+        title: process.title, // ← Mantener como title
+        position: process.title, // ← También como position para compatibilidad
         manager: process.manager || "Sin asignar",
         status: process.status,
         candidates: processCandidates.length,
@@ -340,7 +376,15 @@ function DashboardPage() {
                             Editar
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem className="text-red-600 hover:bg-red-50 cursor-pointer">
+                          <DropdownMenuItem 
+                            onClick={(e) => {
+                              console.log('🖱️ Delete menu item clicked for process:', process.id)
+                              e.preventDefault()
+                              e.stopPropagation()
+                              handleDeleteProcess(process.id, process.title)
+                            }}
+                            className="text-red-600 hover:bg-red-50 cursor-pointer"
+                          >
                             <XCircle className="mr-2 h-4 w-4" />
                             Eliminar
                           </DropdownMenuItem>

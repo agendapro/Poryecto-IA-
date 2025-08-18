@@ -300,80 +300,74 @@ function CandidatosCercaPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filteredCandidates.map(candidate => (
               <Card 
                 key={candidate.id}
-                className="hover:shadow-md transition-all duration-200 cursor-pointer hover:border-blue-300"
+                className="hover:shadow-lg transition-all duration-200 cursor-pointer hover:border-blue-300 hover:-translate-y-1"
                 onClick={() => handleCandidateClick(candidate.id)}
               >
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between">
-                    {/* Main Info */}
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-3 mb-3">
-                        <div>
-                          <h3 className="text-lg font-semibold text-foreground">
-                            {candidate.name}
-                          </h3>
-                          <div className="flex items-center space-x-4 text-sm text-muted-foreground">
-                            <div className="flex items-center space-x-1">
-                              <Briefcase className="h-4 w-4" />
-                              <span>{candidate.process.title}</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <Calendar className="h-4 w-4" />
-                              <span>Actualizado {new Date(candidate.last_updated).toLocaleDateString('es-ES')}</span>
-                            </div>
-                          </div>
-                        </div>
-                        
-                        {/* Status Indicators */}
-                        <div className="flex items-center space-x-2">
-                          {candidate.daysSinceUpdate > 30 && (
-                            <Badge variant="destructive" className="flex items-center space-x-1">
-                              <AlertTriangle className="h-3 w-3" />
-                              <span>Detenido +30d</span>
-                            </Badge>
-                          )}
-                          <Badge 
-                            variant="secondary" 
-                            className="bg-blue-100 text-blue-800"
-                          >
-                            {candidate.currentStage.name}
-                          </Badge>
-                        </div>
-                      </div>
+                <CardContent className="p-4">
+                  <div className="space-y-4">
+                    {/* Candidate Name */}
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground mb-1 truncate">
+                        {candidate.name}
+                      </h3>
+                    </div>
 
-                      {/* Process Stages */}
-                      <div className="mt-4">
-                        <Label className="text-sm font-medium text-muted-foreground">
-                          Proceso de selección:
-                        </Label>
-                        <div className="flex items-center space-x-2 mt-2 overflow-x-auto">
-                          {candidate.process.stages.map((stage, index) => (
-                            <React.Fragment key={stage.id}>
-                              <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-xs whitespace-nowrap ${
-                                stage.id === candidate.currentStage.id
-                                  ? 'bg-blue-100 text-blue-800 border-2 border-blue-300 font-medium'
-                                  : stage.order < candidate.currentStage.order
-                                  ? 'bg-green-100 text-green-800'
-                                  : 'bg-gray-100 text-gray-600'
-                              }`}>
-                                <span>{stage.name}</span>
-                              </div>
-                              {index < candidate.process.stages.length - 1 && (
-                                <ChevronRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                              )}
-                            </React.Fragment>
-                          ))}
-                        </div>
+                    {/* Process Name */}
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-1 text-sm text-muted-foreground">
+                        <Briefcase className="h-4 w-4 flex-shrink-0" />
+                        <span className="truncate">{candidate.process.title}</span>
                       </div>
                     </div>
 
-                    {/* Action Arrow */}
-                    <div className="ml-4">
-                      <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                    {/* Process Stages - Todas con actual destacada */}
+                    <div className="space-y-2">
+                      <Label className="text-xs font-medium text-muted-foreground">
+                        Progreso del proceso:
+                      </Label>
+                      <div className="space-y-2">
+                        {candidate.process.stages.map((stage, index) => (
+                          <div key={stage.id} className="flex items-center space-x-2">
+                            <div className={`flex items-center justify-center w-6 h-6 rounded-full text-xs font-medium ${
+                              stage.id === candidate.currentStage.id
+                                ? 'bg-blue-600 text-white'
+                                : stage.order < candidate.currentStage.order
+                                ? 'bg-green-500 text-white'
+                                : 'bg-gray-300 text-gray-600'
+                            }`}>
+                              {stage.order}
+                            </div>
+                            <div className={`flex-1 px-2 py-1 rounded text-xs ${
+                              stage.id === candidate.currentStage.id
+                                ? 'bg-blue-100 text-blue-800 border border-blue-300 font-medium'
+                                : stage.order < candidate.currentStage.order
+                                ? 'bg-green-100 text-green-800'
+                                : 'bg-gray-100 text-gray-600'
+                            }`}>
+                              {stage.name}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Status and Date */}
+                    <div className="space-y-2 pt-2 border-t border-border">
+                      {candidate.daysSinceUpdate > 30 && (
+                        <Badge variant="destructive" className="flex items-center justify-center space-x-1 w-full">
+                          <AlertTriangle className="h-3 w-3" />
+                          <span>Detenido +30d</span>
+                        </Badge>
+                      )}
+                      
+                      <div className="flex items-center justify-center space-x-1 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        <span>Actualizado {new Date(candidate.last_updated).toLocaleDateString('es-ES')}</span>
+                      </div>
                     </div>
                   </div>
                 </CardContent>
