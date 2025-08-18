@@ -323,13 +323,18 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
             <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
               {processStages.map((stage) => {
                 const stageCandidates = getCandidatesByStage(stage.id)
+                const isHiredStage = stage.name === 'Contratado'
                 return (
                   <div
                     key={stage.id}
-                    className={`bg-muted/50 rounded-lg p-4 min-h-[400px] transition-all duration-200 ${
+                    className={`rounded-lg p-4 min-h-[400px] transition-all duration-200 ${
+                      isHiredStage 
+                        ? 'bg-green-50/80 border-2 border-green-200' 
+                        : 'bg-muted/50 border-2 border-transparent'
+                    } ${
                       dragOverStage === stage.id 
-                        ? 'bg-blue-50 border-2 border-blue-300 border-dashed scale-105' 
-                        : 'border-2 border-transparent'
+                        ? (isHiredStage ? 'bg-green-100 border-green-400 border-dashed scale-105' : 'bg-blue-50 border-blue-300 border-dashed scale-105')
+                        : ''
                     }`}
                     onDragOver={(e) => handleDragOver(e, stage.id)}
                     onDragLeave={handleDragLeave}
@@ -339,7 +344,9 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
                       {/* Encargado de la etapa */}
                       {stage.responsible && stage.responsible !== 'Sistema' && (
                         <div className="mb-2">
-                          <p className="text-xs text-muted-foreground font-medium">
+                          <p className={`text-xs font-medium ${
+                            isHiredStage ? 'text-green-700' : 'text-muted-foreground'
+                          }`}>
                             Encargado: {stage.responsible}
                           </p>
                         </div>
@@ -348,8 +355,18 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
                       {/* Título y acciones */}
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-2">
-                          <h3 className="font-semibold text-foreground">{stage.name}</h3>
-                          <Badge variant="secondary">{stageCandidates.length}</Badge>
+                          <h3 className={`font-semibold ${
+                            isHiredStage ? 'text-green-800' : 'text-foreground'
+                          }`}>
+                            {isHiredStage && <span className="mr-2">🎉</span>}
+                            {stage.name}
+                          </h3>
+                          <Badge 
+                            variant={isHiredStage ? "default" : "secondary"}
+                            className={isHiredStage ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
+                          >
+                            {stageCandidates.length}
+                          </Badge>
                         </div>
                         <Button size="sm" variant="ghost" onClick={() => handleAddCandidate(stage.id)}>
                           <Plus className="h-4 w-4" />
@@ -363,7 +380,11 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
                         return (
                           <Card
                             key={candidate.id}
-                            className={`cursor-pointer hover:shadow-md transition-all bg-card ${
+                            className={`cursor-pointer hover:shadow-md transition-all ${
+                              isHiredStage 
+                                ? 'bg-green-50 border-green-200 hover:bg-green-100' 
+                                : 'bg-card'
+                            } ${
                               draggedCandidate === candidate.id ? "opacity-50 scale-95" : ""
                             }`}
                             draggable

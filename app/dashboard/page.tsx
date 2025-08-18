@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import {
@@ -48,6 +49,7 @@ const getStatusIcon = (status: string) => {
 }
 
 function DashboardPage() {
+  const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("Todos")
   const { user, profile, signOut } = useAuth()
@@ -182,16 +184,19 @@ function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="group border border-gray-200 hover:border-yellow-300 hover:shadow-md transition-all duration-300 ease-out hover:-translate-y-1 cursor-pointer">
+          <Card 
+            className="group border border-gray-200 hover:border-yellow-300 hover:shadow-md transition-all duration-300 ease-out hover:-translate-y-1 cursor-pointer"
+            onClick={() => router.push('/candidatos-cerca')}
+          >
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium group-hover:text-yellow-700 transition-colors duration-200">En Proceso</CardTitle>
+              <CardTitle className="text-sm font-medium group-hover:text-yellow-700 transition-colors duration-200">Candidatos cerca de ti</CardTitle>
               <div className="p-1.5 bg-yellow-100 rounded-lg group-hover:bg-yellow-200 transition-colors duration-200">
                 <Clock className="h-4 w-4 text-yellow-600 group-hover:scale-110 transition-transform duration-200" />
               </div>
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-yellow-700 group-hover:text-yellow-800 transition-colors duration-200">{stats.activeCandidates}</div>
-              <p className="text-xs text-muted-foreground group-hover:text-yellow-600 transition-colors duration-200">En diferentes etapas</p>
+              <p className="text-xs text-muted-foreground group-hover:text-yellow-600 transition-colors duration-200">En tus etapas asignadas</p>
             </CardContent>
           </Card>
 
