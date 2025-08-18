@@ -5,7 +5,11 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('🚀 API send-notification-email called');
+    
     const body = await request.json();
+    console.log('📧 Email request body:', body);
+    
     const { 
       recipientEmail, 
       recipientName, 
@@ -17,11 +21,23 @@ export async function POST(request: NextRequest) {
 
     // Validar datos requeridos
     if (!recipientEmail || !candidateName || !stageName || !processTitle) {
+      console.error('❌ Faltan datos requeridos:', { recipientEmail, candidateName, stageName, processTitle });
       return NextResponse.json(
-        { error: 'Faltan datos requeridos' },
+        { error: 'Faltan datos requeridos', missingData: { recipientEmail, candidateName, stageName, processTitle } },
         { status: 400 }
       );
     }
+
+    // Verificar configuración de Resend
+    if (!process.env.RESEND_API_KEY) {
+      console.error('❌ RESEND_API_KEY no configurada');
+      return NextResponse.json(
+        { error: 'RESEND_API_KEY no configurada' },
+        { status: 500 }
+      );
+    }
+
+    console.log('✅ Datos validados correctamente');
 
     // Crear el contenido del email
     const subject = `🎯 Nuevo candidato en tu etapa: ${stageName}`;
@@ -144,6 +160,11 @@ export async function POST(request: NextRequest) {
     `;
 
     // Enviar email con Resend
+    console.log('📤 Enviando email con Resend...');
+    console.log('📧 From:', process.env.RESEND_FROM_EMAIL || 'notificaciones@agendapro.com');
+    console.log('📧 To:', recipientEmail);
+    console.log('📧 Subject:', subject);
+    
     const { data, error } = await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || 'notificaciones@agendapro.com',
       to: recipientEmail,
@@ -152,10 +173,13 @@ export async function POST(request: NextRequest) {
       text: message, // Versión texto plano como fallback
     });
 
+    console.log('📬 Respuesta de Resend - Data:', data);
+    console.log('📬 Respuesta de Resend - Error:', error);
+
     if (error) {
-      console.error('Error enviando email con Resend:', error);
+      console.error('❌ Error enviando email con Resend:', error);
       return NextResponse.json(
-        { error: 'Error enviando email', details: error },
+        { error: 'Error enviando email', details: error, debugInfo: { recipientEmail, subject } },
         { status: 500 }
       );
     }
@@ -165,13 +189,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       emailId: data?.id,
-      message: 'Email enviado exitosamente'
+      message: 'Email enviado exitosamente',
+      debugInfo: { recipientEmail, subject }
     });
 
   } catch (error) {
-    console.error('Error en API send-notification-email:', error);
+    console.error('❌ Error crítico en API send-notification-email:', error);
     return NextResponse.json(
-      { error: 'Error interno del servidor' },
+      { error: 'Error interno del servidor', details: error.message || error },
       { status: 500 }
     );
   }

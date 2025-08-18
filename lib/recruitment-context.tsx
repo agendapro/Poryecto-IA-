@@ -708,33 +708,57 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
 
   const sendNotificationEmail = async (candidateId: number, newStageId: number, movedBy: string) => {
     try {
+      console.log('🚀 Iniciando sendNotificationEmail:', { candidateId, newStageId, movedBy });
+      
       // Obtener información necesaria
       const candidate = candidates.find(c => c.id === candidateId)
       const newStage = stages.find(s => s.id === newStageId)
       const process = candidate ? processes.find(p => p.id === candidate.process_id) : null
 
+      console.log('📋 Información obtenida:', { 
+        candidate: candidate?.name, 
+        newStage: newStage?.name, 
+        process: process?.title,
+        responsible: newStage?.responsible 
+      });
+
       if (!candidate || !newStage || !process) {
-        console.warn("No se puede enviar email: falta información del candidato, etapa o proceso")
+        console.warn("❌ No se puede enviar email: falta información del candidato, etapa o proceso")
         return
       }
 
       // Solo enviar email si hay un responsable asignado y no es "Sistema"
       if (!newStage.responsible || newStage.responsible === 'Sistema') {
-        console.log("No se envía email: etapa sin responsable o es 'Sistema'")
+        console.log("ℹ️ No se envía email: etapa sin responsable o es 'Sistema'")
         return
       }
 
       // Obtener email del responsable desde la base de datos
-      const { data: responsibleProfile } = await supabase
+      console.log('🔍 Buscando email para responsable:', newStage.responsible);
+      const { data: responsibleProfile, error: profileError } = await supabase
         .from('profiles')
         .select('email')
         .eq('full_name', newStage.responsible)
         .single()
 
+      console.log('📧 Resultado búsqueda email:', { responsibleProfile, profileError });
+
       if (!responsibleProfile?.email) {
-        console.warn(`No se encontró email para el responsable: ${newStage.responsible}`)
+        console.warn(`❌ No se encontró email para el responsable: ${newStage.responsible}`)
         return
       }
+
+      // Preparar datos para el API
+      const emailData = {
+        recipientEmail: responsibleProfile.email,
+        recipientName: newStage.responsible,
+        candidateName: candidate.name,
+        stageName: newStage.name,
+        processTitle: process.title,
+        movedBy: movedBy
+      };
+
+      console.log('📤 Enviando request al API:', emailData);
 
       // Llamar a la API de envío de emails
       const response = await fetch('/api/send-notification-email', {
@@ -742,17 +766,14 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          recipientEmail: responsibleProfile.email,
-          recipientName: newStage.responsible,
-          candidateName: candidate.name,
-          stageName: newStage.name,
-          processTitle: process.title,
-          movedBy: movedBy
-        })
+        body: JSON.stringify(emailData)
       })
 
+      console.log('📬 Respuesta del API - Status:', response.status);
+      console.log('📬 Respuesta del API - OK:', response.ok);
+
       const result = await response.json()
+      console.log('📬 Respuesta del API - Body:', result);
 
       if (response.ok) {
         console.log('✅ Email enviado exitosamente:', result)
@@ -761,7 +782,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       }
 
     } catch (error) {
-      console.error('Error en sendNotificationEmail:', error)
+      console.error('❌ Error crítico en sendNotificationEmail:', error)
       // No lanzar error para no afectar el flujo principal
     }
   }
