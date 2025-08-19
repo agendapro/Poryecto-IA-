@@ -74,7 +74,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const [showAllComments, setShowAllComments] = useState(false)
   const [visibleComments, setVisibleComments] = useState<Set<number>>(new Set())
   const [isUploadingCV, setIsUploadingCV] = useState(false)
-  const [isHireModalOpen, setIsHireModalOpen] = useState(false)
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   const handleGoBack = () => {
     if (origin === 'nearby') {
@@ -143,43 +143,6 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
     } catch (error) {
       console.error('Error moving candidate:', error)
       alert("Error al mover candidato. Por favor, intenta de nuevo.")
-    }
-  }
-
-  const handleHireCandidate = async () => {
-    try {
-      const supabase = createClient()
-      
-      // Actualizar el estado del candidato a "Contratado"
-      const { error } = await supabase
-        .from("candidates")
-        .update({ 
-          status: "Contratado",
-          last_updated: new Date().toISOString()
-        })
-        .eq("id", candidate.id)
-
-      if (error) throw error
-
-      // Agregar evento al timeline
-      await addTimelineEvent(candidate.id, {
-        type: "movement",
-        title: "",
-        description: "Candidato contratado exitosamente 🎉",
-        author: profile?.full_name || "Usuario",
-        date: new Date().toISOString(),
-        icon: "UserCheck",
-      })
-
-      setIsHireModalOpen(false)
-      alert("¡Candidato contratado exitosamente!")
-      await fetchTimeline()
-      // Redirect back to origin view
-      handleGoBack()
-    } catch (error) {
-      console.error('Error hiring candidate:', error)
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      alert(`Error al contratar candidato: ${errorMessage}`)
     }
   }
 
@@ -318,7 +281,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
 
           <div className="flex items-center space-x-2">
             {/* Dropdown Menu tipo Basecamp */}
-            <DropdownMenu>
+            <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <Button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
                   Mover candidato
@@ -361,15 +324,10 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                 
                 {/* Acciones especiales */}
                 <DropdownMenuItem
-                  onClick={() => setIsHireModalOpen(true)}
-                  className="cursor-pointer text-green-700 hover:bg-green-50"
-                >
-                  <UserCheck className="h-4 w-4 mr-2" />
-                  Contratar candidato
-                </DropdownMenuItem>
-                
-                <DropdownMenuItem
-                  onClick={() => setIsRejectModalOpen(true)}
+                  onClick={() => {
+                    setIsDropdownOpen(false) // Cerrar dropdown explícitamente
+                    setIsRejectModalOpen(true) // Abrir modal
+                  }}
                   className="cursor-pointer text-red-700 hover:bg-red-50"
                 >
                   <XCircle className="h-4 w-4 mr-2" />
@@ -382,7 +340,17 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           {/* Modal para rechazar candidato */}
-          <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+          <Dialog 
+            open={isRejectModalOpen} 
+            onOpenChange={(open) => {
+              setIsRejectModalOpen(open)
+              if (!open) {
+                // Si el modal se cierra, asegurar que el dropdown también se cierre
+                setIsDropdownOpen(false)
+                setRejectReason("") // Limpiar el campo
+              }
+            }}
+          >
             <DialogContent className="sm:max-w-md">
               <DialogHeader>
                 <DialogTitle>Rechazar Candidato</DialogTitle>
@@ -398,36 +366,18 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                   className="min-h-[100px]"
                 />
                 <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => {
+                      setIsRejectModalOpen(false)
+                      setRejectReason("") // Limpiar el campo
+                      setIsDropdownOpen(false) // Asegurar que el dropdown esté cerrado
+                    }}
+                  >
                     Cancelar
                   </Button>
                   <Button variant="destructive" onClick={handleRejectCandidate} disabled={!rejectReason.trim()}>
                     Rechazar Candidato
-                  </Button>
-                </div>
-              </div>
-            </DialogContent>
-          </Dialog>
-
-          {/* Modal para contratar candidato */}
-          <Dialog open={isHireModalOpen} onOpenChange={setIsHireModalOpen}>
-            <DialogContent className="sm:max-w-md">
-              <DialogHeader>
-                <DialogTitle>Contratar Candidato</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  ¿Estás seguro de que quieres contratar a {candidate.name}? Esta acción marcará al candidato como contratado exitosamente.
-                </p>
-                <div className="flex justify-end space-x-2">
-                  <Button variant="outline" onClick={() => setIsHireModalOpen(false)}>
-                    Cancelar
-                  </Button>
-                  <Button 
-                    className="bg-green-600 hover:bg-green-700 text-white"
-                    onClick={handleHireCandidate}
-                  >
-                    ✓ Contratar Candidato
                   </Button>
                 </div>
               </div>

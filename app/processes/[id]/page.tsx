@@ -354,36 +354,35 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
                     onDrop={(e) => handleDrop(e, stage.id)}
                   >
                     <div className="mb-4">
-                      {/* Encargado de la etapa */}
-                      {stage.responsible && stage.responsible !== 'Sistema' && (
-                        <div className="mb-2">
-                          <p className={`text-xs font-medium ${
-                            isHiredStage ? 'text-green-700' : 'text-muted-foreground'
-                          }`}>
-                            Encargado: {stage.responsible}
-                          </p>
-                        </div>
-                      )}
-                      
                       {/* Título y acciones */}
                       <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <h3 className={`font-semibold ${
+                        <div className="flex flex-col">
+                          <h3 className={`font-semibold text-base mb-1 ${
                             isHiredStage ? 'text-green-800' : 'text-foreground'
                           }`}>
                             {isHiredStage && <span className="mr-2">🎉</span>}
                             {stage.name}
                           </h3>
+                          {/* Encargado de la etapa */}
+                          {stage.responsible && stage.responsible !== 'Sistema' && (
+                            <p className={`text-xs font-medium ${
+                              isHiredStage ? 'text-green-700' : 'text-muted-foreground'
+                            }`}>
+                              Encargado: {stage.responsible}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center space-x-2">
                           <Badge 
                             variant={isHiredStage ? "default" : "secondary"}
                             className={isHiredStage ? 'bg-green-600 hover:bg-green-700 text-white' : ''}
                           >
                             {stageCandidates.length}
                           </Badge>
+                          <Button size="sm" variant="ghost" onClick={() => handleAddCandidate(stage.id)}>
+                            <Plus className="h-4 w-4" />
+                          </Button>
                         </div>
-                        <Button size="sm" variant="ghost" onClick={() => handleAddCandidate(stage.id)}>
-                          <Plus className="h-4 w-4" />
-                        </Button>
                       </div>
                     </div>
 
