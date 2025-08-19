@@ -279,18 +279,25 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-3">
+            {/* Etapa actual */}
+            {currentStage && (
+              <div className="text-sm text-muted-foreground">
+                <span className="font-medium">Etapa actual:</span> {currentStage.name}
+              </div>
+            )}
+            
             {/* Dropdown Menu tipo Basecamp */}
             <DropdownMenu open={isDropdownOpen} onOpenChange={setIsDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <Button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
-                  Mover candidato
+                  Mover a
                   <ChevronDown className="h-4 w-4 ml-2" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-64">
                 <DropdownMenuLabel className="text-center">
-                  Mover a etapa del proceso
+                  Seleccionar nueva etapa
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 
@@ -335,8 +342,6 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            <Badge className="bg-green-100 text-green-800">{candidate.status}</Badge>
           </div>
 
           {/* Modal para rechazar candidato */}
