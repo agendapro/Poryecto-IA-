@@ -8,6 +8,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Textarea } from "@/components/ui/textarea"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import {
   ArrowLeft,
   FileText,
   Calendar,
@@ -22,6 +30,11 @@ import {
   Eye,
   EyeOff,
   Upload,
+  ChevronDown,
+  ArrowRight,
+  ArrowLeft as ArrowLeftIcon,
+  UserCheck,
+  XCircle,
 } from "lucide-react"
 import { useRecruitment, type TimelineEvent } from "@/lib/recruitment-context"
 import { useAuth } from "@/lib/auth-context"
@@ -47,6 +60,7 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const [showAllComments, setShowAllComments] = useState(false)
   const [visibleComments, setVisibleComments] = useState<Set<number>>(new Set())
   const [isUploadingCV, setIsUploadingCV] = useState(false)
+  const [isHireModalOpen, setIsHireModalOpen] = useState(false)
 
   const fetchTimeline = async () => {
     if (!candidate) return
@@ -98,16 +112,52 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const currentStage = processStages.find((s) => s.id === candidate.current_stage_id)
   const nextStage = processStages.find((s) => s.order === (currentStage?.order ?? 0) + 1)
 
-  const handleMoveToNextStage = async () => {
-    if (nextStage) {
-      try {
-        await moveCandidateToStage(candidate.id, nextStage.id, profile?.full_name || "Usuario")
-        // Recargar timeline
-        await fetchTimeline()
-      } catch (error) {
-        console.error('Error moving candidate:', error)
-        alert("Error al mover candidato. Por favor, intenta de nuevo.")
-      }
+  const handleMoveToStage = async (stageId: number, stageName: string) => {
+    try {
+      await moveCandidateToStage(candidate.id, stageId, profile?.full_name || "Usuario")
+      // Recargar timeline
+      await fetchTimeline()
+      alert(`Candidato movido a ${stageName} exitosamente`)
+    } catch (error) {
+      console.error('Error moving candidate:', error)
+      alert("Error al mover candidato. Por favor, intenta de nuevo.")
+    }
+  }
+
+  const handleHireCandidate = async () => {
+    try {
+      const supabase = createClient()
+      
+      // Actualizar el estado del candidato a "Contratado"
+      const { error } = await supabase
+        .from("candidates")
+        .update({ 
+          status: "Contratado",
+          last_updated: new Date().toISOString()
+        })
+        .eq("id", candidate.id)
+
+      if (error) throw error
+
+      // Agregar evento al timeline
+      await addTimelineEvent(candidate.id, {
+        type: "movement",
+        title: "",
+        description: "Candidato contratado exitosamente 🎉",
+        author: profile?.full_name || "Usuario",
+        date: new Date().toISOString(),
+        icon: "UserCheck",
+      })
+
+      setIsHireModalOpen(false)
+      alert("¡Candidato contratado exitosamente!")
+      await fetchTimeline()
+      // Redirect back to process view
+      window.location.href = `/processes/${candidate.process_id}`
+    } catch (error) {
+      console.error('Error hiring candidate:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
+      alert(`Error al contratar candidato: ${errorMessage}`)
     }
   }
 
@@ -245,48 +295,122 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
           </div>
 
           <div className="flex items-center space-x-2">
-            <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
-              <DialogTrigger asChild>
-                <Button variant="destructive" className="bg-red-600 hover:bg-red-700 text-white">
-                  <X className="h-4 w-4 mr-2" />
-                  Rechazado
+            {/* Dropdown Menu tipo Basecamp */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white">
+                  Mover candidato
+                  <ChevronDown className="h-4 w-4 ml-2" />
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Rechazar Candidato</DialogTitle>
-                </DialogHeader>
-                <div className="space-y-4">
-                  <p className="text-sm text-muted-foreground">
-                    ¿Estás seguro de que quieres rechazar a {candidate.name}? Por favor, proporciona un motivo.
-                  </p>
-                  <Textarea
-                    placeholder="Motivo del rechazo..."
-                    value={rejectReason}
-                    onChange={(e) => setRejectReason(e.target.value)}
-                    className="min-h-[100px]"
-                  />
-                  <div className="flex justify-end space-x-2">
-                    <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>
-                      Cancelar
-                    </Button>
-                    <Button variant="destructive" onClick={handleRejectCandidate} disabled={!rejectReason.trim()}>
-                      Rechazar Candidato
-                    </Button>
-                  </div>
-                </div>
-              </DialogContent>
-            </Dialog>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuLabel className="text-center">
+                  Mover a etapa del proceso
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                
+                {/* Etapas del proceso */}
+                {processStages.map((stage) => {
+                  const isCurrent = stage.id === candidate.current_stage_id
+                  const isPrevious = stage.order < (currentStage?.order ?? 0)
+                  const isNext = stage.order > (currentStage?.order ?? 0)
+                  
+                  return (
+                    <DropdownMenuItem
+                      key={stage.id}
+                      onClick={() => !isCurrent && handleMoveToStage(stage.id, stage.name)}
+                      disabled={isCurrent}
+                      className={`cursor-pointer ${isCurrent ? 'bg-blue-50 text-blue-700 font-medium' : ''}`}
+                    >
+                      <div className="flex items-center justify-between w-full">
+                        <div className="flex items-center space-x-2">
+                          {isPrevious && <ArrowLeftIcon className="h-4 w-4 text-orange-500" />}
+                          {isCurrent && <div className="h-2 w-2 bg-blue-500 rounded-full" />}
+                          {isNext && <ArrowRight className="h-4 w-4 text-green-500" />}
+                          <span>{stage.name}</span>
+                        </div>
+                        {isCurrent && <span className="text-xs text-blue-600">(Actual)</span>}
+                      </div>
+                    </DropdownMenuItem>
+                  )
+                })}
+                
+                <DropdownMenuSeparator />
+                
+                {/* Acciones especiales */}
+                <DropdownMenuItem
+                  onClick={() => setIsHireModalOpen(true)}
+                  className="cursor-pointer text-green-700 hover:bg-green-50"
+                >
+                  <UserCheck className="h-4 w-4 mr-2" />
+                  Contratar candidato
+                </DropdownMenuItem>
+                
+                <DropdownMenuItem
+                  onClick={() => setIsRejectModalOpen(true)}
+                  className="cursor-pointer text-red-700 hover:bg-red-50"
+                >
+                  <XCircle className="h-4 w-4 mr-2" />
+                  Rechazar candidato
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-            <Button
-              className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
-              onClick={handleMoveToNextStage}
-              disabled={!nextStage}
-            >
-              {nextStage ? `Mover a ${nextStage.name}` : "Proceso completado"}
-            </Button>
             <Badge className="bg-green-100 text-green-800">{candidate.status}</Badge>
           </div>
+
+          {/* Modal para rechazar candidato */}
+          <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Rechazar Candidato</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  ¿Estás seguro de que quieres rechazar a {candidate.name}? Por favor, proporciona un motivo.
+                </p>
+                <Textarea
+                  placeholder="Motivo del rechazo..."
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="min-h-[100px]"
+                />
+                <div className="flex justify-end space-x-2">
+                  <Button variant="outline" onClick={() => setIsRejectModalOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button variant="destructive" onClick={handleRejectCandidate} disabled={!rejectReason.trim()}>
+                    Rechazar Candidato
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* Modal para contratar candidato */}
+          <Dialog open={isHireModalOpen} onOpenChange={setIsHireModalOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>Contratar Candidato</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">
+                  ¿Estás seguro de que quieres contratar a {candidate.name}? Esta acción marcará al candidato como contratado exitosamente.
+                </p>
+                <div className="flex justify-end space-x-2">
+                  <Button variant="outline" onClick={() => setIsHireModalOpen(false)}>
+                    Cancelar
+                  </Button>
+                  <Button 
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                    onClick={handleHireCandidate}
+                  >
+                    ✓ Contratar Candidato
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </header>
 
