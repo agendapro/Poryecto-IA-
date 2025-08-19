@@ -45,6 +45,20 @@ import withAuth from "@/components/withAuth"
 function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = React.use(params)
   const candidateId = Number.parseInt(id)
+  
+  // Detectar desde dónde vino el usuario
+  const [origin, setOrigin] = React.useState<'process' | 'nearby' | null>(null)
+  
+  React.useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const fromParam = urlParams.get('from')
+    
+    if (fromParam === 'nearby') {
+      setOrigin('nearby')
+    } else {
+      setOrigin('process')
+    }
+  }, [])
 
   const { getCandidate, getNextStage, moveCandidateToStage, addTimelineEvent, stages, rejectCandidate, getProcess, getStagesByProcess, loading, uploadCV, downloadCV, updateCandidateCV } =
     useRecruitment()
@@ -61,6 +75,14 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const [visibleComments, setVisibleComments] = useState<Set<number>>(new Set())
   const [isUploadingCV, setIsUploadingCV] = useState(false)
   const [isHireModalOpen, setIsHireModalOpen] = useState(false)
+
+  const handleGoBack = () => {
+    if (origin === 'nearby') {
+      window.location.href = '/candidatos-cerca'
+    } else {
+      window.location.href = `/processes/${candidate?.process_id}`
+    }
+  }
 
   const fetchTimeline = async () => {
     if (!candidate) return
@@ -152,8 +174,8 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
       setIsHireModalOpen(false)
       alert("¡Candidato contratado exitosamente!")
       await fetchTimeline()
-      // Redirect back to process view
-      window.location.href = `/processes/${candidate.process_id}`
+      // Redirect back to origin view
+      handleGoBack()
     } catch (error) {
       console.error('Error hiring candidate:', error)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
@@ -189,8 +211,8 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
         setIsRejectModalOpen(false)
         setRejectReason("")
         alert("Candidato rechazado exitosamente")
-        // Redirect back to process view
-        window.location.href = `/processes/${candidate.process_id}`
+        // Redirect back to origin view
+        handleGoBack()
       } catch (error) {
         console.error('Error rejecting candidate:', error)
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
@@ -273,9 +295,9 @@ function CandidateDetailPage({ params }: { params: Promise<{ id: string }> }) {
       <header className="bg-card border-b border-border px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" onClick={() => (window.location.href = `/processes/${candidate.process_id}`)}>
+            <Button variant="ghost" onClick={handleGoBack}>
               <ArrowLeft className="h-4 w-4 mr-2" />
-              Volver al proceso
+              {origin === 'nearby' ? 'Volver a candidatos cerca' : 'Volver al proceso'}
             </Button>
             <div className="flex items-center space-x-3">
               <Avatar className="h-12 w-12">

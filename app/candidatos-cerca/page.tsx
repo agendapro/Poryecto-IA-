@@ -193,7 +193,7 @@ function CandidatosCercaPage() {
   }
 
   const handleCandidateClick = (candidateId: number) => {
-    router.push(`/candidates/${candidateId}`)
+    router.push(`/candidates/${candidateId}?from=nearby`)
   }
 
   if (loading) {
