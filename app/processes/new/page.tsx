@@ -14,6 +14,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useRecruitment } from "@/lib/recruitment-context"
 import { useAuth } from "@/lib/auth-context"
 import { createClient } from "@/lib/supabase/client"
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable'
+import {
+  useSortable,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 interface User {
   id: string
@@ -28,10 +47,122 @@ interface Stage {
   responsibleName: string
 }
 
+// Componente sortable para cada etapa
+function SortableStage({ 
+  stage, 
+  index, 
+  users, 
+  onStageChange, 
+  onRemoveStage, 
+  canRemove 
+}: {
+  stage: Stage
+  index: number
+  users: User[]
+  onStageChange: (stageId: string, field: string, value: string) => void
+  onRemoveStage: (stageId: string) => void
+  canRemove: boolean
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: stage.id })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  const isApplicationStage = stage.name === "Aplicación"
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className={`flex items-center space-x-4 p-4 bg-muted rounded-lg ${isDragging ? 'z-50' : ''}`}
+    >
+      <div className="flex items-center space-x-2">
+        <div 
+          {...attributes} 
+          {...listeners}
+          className={`cursor-grab hover:cursor-grabbing ${isApplicationStage ? 'cursor-not-allowed opacity-50' : ''}`}
+          style={isApplicationStage ? { pointerEvents: 'none' } : {}}
+        >
+          <GripVertical className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <Badge variant="secondary">{index + 1}</Badge>
+      </div>
+
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-1">
+          <Label className="text-sm">Nombre de la Etapa</Label>
+          <Input
+            placeholder="ej. Entrevista Técnica"
+            value={stage.name}
+            onChange={(e) => onStageChange(stage.id, "name", e.target.value)}
+            disabled={isApplicationStage}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label className="text-sm">Responsable</Label>
+          {isApplicationStage ? (
+            <div className="flex items-center space-x-2 px-3 py-2 bg-secondary rounded-md">
+              <User className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Sistema</span>
+            </div>
+          ) : (
+            <Select onValueChange={(value) => onStageChange(stage.id, "responsibleId", value)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Seleccionar responsable" />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map((user) => (
+                  <SelectItem key={user.id} value={user.id}>
+                    <div className="flex flex-col">
+                      <span>{user.full_name}</span>
+                      <span className="text-xs text-muted-foreground">{user.role}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      </div>
+
+      {canRemove && !isApplicationStage && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => onRemoveStage(stage.id)}
+          className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+        >
+          <Trash2 className="h-4 w-4" />
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export default function NewProcess() {
   const { createProcess } = useRecruitment()
   const { user } = useAuth()
   const supabase = createClient()
+  
+  // Configurar sensores para drag & drop
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  )
   
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
@@ -125,6 +256,30 @@ export default function NewProcess() {
   const removeStage = (stageId: string) => {
     if (stages.length > 1) {
       setStages((prev) => prev.filter((stage) => stage.id !== stageId))
+    }
+  }
+
+  // Manejar el evento de drag end para reordenar etapas
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event
+
+    if (active.id !== over?.id) {
+      setStages((items) => {
+        const oldIndex = items.findIndex((item) => item.id === active.id)
+        const newIndex = items.findIndex((item) => item.id === over?.id)
+        
+        // Prevenir mover la etapa "Aplicación" desde la primera posición
+        if (oldIndex === 0 && items[0].name === "Aplicación") {
+          return items
+        }
+        
+        // Prevenir mover otras etapas a la primera posición si "Aplicación" está ahí
+        if (newIndex === 0 && items[0].name === "Aplicación") {
+          return items
+        }
+
+        return arrayMove(items, oldIndex, newIndex)
+      })
     }
   }
 
@@ -310,7 +465,11 @@ export default function NewProcess() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Configuración de Etapas</CardTitle>
-                  <CardDescription>Define las etapas del proceso y asigna responsables</CardDescription>
+                  <CardDescription>
+                    Define las etapas del proceso y asigna responsables. 
+                    <br />
+                    <span className="text-xs text-blue-600 font-medium">💡 Arrastra las etapas para reordenarlas</span>
+                  </CardDescription>
                 </div>
                 <Button type="button" variant="outline" onClick={addStage}>
                   <Plus className="h-4 w-4 mr-2" />
@@ -319,66 +478,30 @@ export default function NewProcess() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-4">
-                {stages.map((stage, index) => (
-                  <div key={stage.id} className="flex items-center space-x-4 p-4 bg-muted rounded-lg">
-                    <div className="flex items-center space-x-2">
-                      <GripVertical className="h-4 w-4 text-muted-foreground" />
-                      <Badge variant="secondary">{index + 1}</Badge>
-                    </div>
-
-                    <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div className="space-y-1">
-                        <Label className="text-sm">Nombre de la Etapa</Label>
-                        <Input
-                          placeholder="ej. Entrevista Técnica"
-                          value={stage.name}
-                          onChange={(e) => handleStageChange(stage.id, "name", e.target.value)}
-                          disabled={stage.name === "Aplicación"}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label className="text-sm">Responsable</Label>
-                        {stage.name === "Aplicación" ? (
-                          <div className="flex items-center space-x-2 px-3 py-2 bg-secondary rounded-md">
-                            <User className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm text-muted-foreground">Sistema</span>
-                          </div>
-                        ) : (
-                          <Select onValueChange={(value) => handleStageChange(stage.id, "responsibleId", value)}>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Seleccionar responsable" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {users.map((user) => (
-                                <SelectItem key={user.id} value={user.id}>
-                                  <div className="flex flex-col">
-                                    <span>{user.full_name}</span>
-                                    <span className="text-xs text-muted-foreground">{user.role}</span>
-                                  </div>
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                      </div>
-                    </div>
-
-                    {stages.length > 1 && stage.name !== "Aplicación" && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeStage(stage.id)}
-                        className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    )}
+              <DndContext 
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext 
+                  items={stages.map(stage => stage.id)}
+                  strategy={verticalListSortingStrategy}
+                >
+                  <div className="space-y-4">
+                    {stages.map((stage, index) => (
+                      <SortableStage
+                        key={stage.id}
+                        stage={stage}
+                        index={index}
+                        users={users}
+                        onStageChange={handleStageChange}
+                        onRemoveStage={removeStage}
+                        canRemove={stages.length > 1}
+                      />
+                    ))}
                   </div>
-                ))}
-              </div>
+                </SortableContext>
+              </DndContext>
             </CardContent>
           </Card>
 
