@@ -24,6 +24,8 @@ import {
   Briefcase,
   ChevronRight,
   AlertTriangle,
+  Crown,
+  UserCheck,
 } from 'lucide-react'
 
 interface CandidateWithDetails {
@@ -36,6 +38,7 @@ interface CandidateWithDetails {
   process: {
     id: number
     title: string
+    manager: string | null
     stages: Array<{
       id: number
       name: string
@@ -50,6 +53,7 @@ interface CandidateWithDetails {
     order: number
   }
   daysSinceUpdate: number
+  relevanceReason: 'manager' | 'responsible' | 'both'
 }
 
 function CandidatosCercaPage() {
@@ -59,10 +63,11 @@ function CandidatosCercaPage() {
   
   const [searchTerm, setSearchTerm] = useState('')
   const [selectedStages, setSelectedStages] = useState<number[]>([])
+  const [selectedRelevance, setSelectedRelevance] = useState<string[]>([])
   const [sortBy, setSortBy] = useState<'name' | 'lastUpdated'>('lastUpdated')
   const [showFilters, setShowFilters] = useState(false)
 
-  // Obtener candidatos cercanos (donde el usuario es responsable de la etapa actual)
+  // Obtener candidatos cercanos (donde el usuario es manager del proceso o responsable de la etapa actual)
   const nearbyCandidates = useMemo(() => {
     if (!profile?.full_name) return []
 
@@ -79,6 +84,22 @@ function CandidatosCercaPage() {
           (new Date().getTime() - new Date(candidate.last_updated).getTime()) / (1000 * 60 * 60 * 24)
         )
 
+        // Determinar la razón de relevancia
+        const isManager = process.manager === profile.full_name
+        const isResponsible = currentStage.responsible === profile.full_name
+        
+        // Solo incluir si es manager o responsable
+        if (!isManager && !isResponsible) return null
+
+        let relevanceReason: 'manager' | 'responsible' | 'both'
+        if (isManager && isResponsible) {
+          relevanceReason = 'both'
+        } else if (isManager) {
+          relevanceReason = 'manager'
+        } else {
+          relevanceReason = 'responsible'
+        }
+
         return {
           id: candidate.id,
           name: candidate.name,
@@ -89,16 +110,15 @@ function CandidatosCercaPage() {
           process: {
             id: process.id,
             title: process.title,
+            manager: process.manager,
             stages: processStages
           },
           currentStage,
-          daysSinceUpdate
+          daysSinceUpdate,
+          relevanceReason
         }
       })
-      .filter((candidate): candidate is CandidateWithDetails => 
-        candidate !== null && 
-        candidate.currentStage.responsible === profile.full_name
-      )
+      .filter((candidate): candidate is CandidateWithDetails => candidate !== null)
 
     return candidatesWithDetails
   }, [candidates, stages, processes, profile?.full_name])
@@ -122,6 +142,13 @@ function CandidatosCercaPage() {
       )
     }
 
+    // Filtro por tipo de relevancia
+    if (selectedRelevance.length > 0) {
+      filtered = filtered.filter(candidate =>
+        selectedRelevance.includes(candidate.relevanceReason)
+      )
+    }
+
     // Ordenamiento
     filtered.sort((a, b) => {
       if (sortBy === 'name') {
@@ -132,29 +159,36 @@ function CandidatosCercaPage() {
     })
 
     return filtered
-  }, [nearbyCandidates, searchTerm, selectedStages, sortBy])
+  }, [nearbyCandidates, searchTerm, selectedStages, selectedRelevance, sortBy])
 
-  // Obtener todas las etapas únicas donde el usuario es responsable
+  // Obtener todas las etapas únicas de los candidatos cercanos
   const availableStages = useMemo(() => {
     if (!profile?.full_name) return []
     
-    const userStages = stages.filter(stage => 
-      stage.responsible === profile.full_name
-    )
+    // Obtener todas las etapas actuales de los candidatos cercanos
+    const candidateStages = nearbyCandidates.map(candidate => candidate.currentStage)
     
     // Eliminar duplicados por nombre
-    const uniqueStages = userStages.filter((stage, index, self) =>
+    const uniqueStages = candidateStages.filter((stage, index, self) =>
       index === self.findIndex(s => s.name === stage.name)
     )
     
     return uniqueStages
-  }, [stages, profile?.full_name])
+  }, [nearbyCandidates, profile?.full_name])
 
   const handleStageFilter = (stageId: number, checked: boolean) => {
     setSelectedStages(prev => 
       checked 
         ? [...prev, stageId]
         : prev.filter(id => id !== stageId)
+    )
+  }
+
+  const handleRelevanceFilter = (relevanceType: string, checked: boolean) => {
+    setSelectedRelevance(prev => 
+      checked 
+        ? [...prev, relevanceType]
+        : prev.filter(type => type !== relevanceType)
     )
   }
 
@@ -179,7 +213,7 @@ function CandidatosCercaPage() {
             <div>
               <h1 className="text-2xl font-bold text-foreground">Candidatos cerca de ti</h1>
               <p className="text-muted-foreground">
-                Candidatos en etapas donde eres responsable
+                Candidatos de procesos donde eres manager o estás a cargo de su etapa actual
               </p>
             </div>
           </div>
@@ -273,7 +307,76 @@ function CandidatosCercaPage() {
                         onClick={() => setSelectedStages([])}
                         className="mt-3"
                       >
-                        Limpiar filtros
+                        Limpiar filtros de etapa
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div>
+                    <Label className="text-base font-medium">Filtrar por razón de relevancia</Label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="relevance-manager"
+                          checked={selectedRelevance.includes('manager')}
+                          onCheckedChange={(checked) => 
+                            handleRelevanceFilter('manager', checked as boolean)
+                          }
+                        />
+                        <Label 
+                          htmlFor="relevance-manager"
+                          className="text-sm font-normal cursor-pointer flex items-center space-x-1"
+                        >
+                          <Crown className="h-3 w-3 text-purple-600" />
+                          <span>Soy manager del proceso</span>
+                        </Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="relevance-responsible"
+                          checked={selectedRelevance.includes('responsible')}
+                          onCheckedChange={(checked) => 
+                            handleRelevanceFilter('responsible', checked as boolean)
+                          }
+                        />
+                        <Label 
+                          htmlFor="relevance-responsible"
+                          className="text-sm font-normal cursor-pointer flex items-center space-x-1"
+                        >
+                          <UserCheck className="h-3 w-3 text-blue-600" />
+                          <span>Soy responsable de la etapa</span>
+                        </Label>
+                      </div>
+                      
+                      <div className="flex items-center space-x-2">
+                        <Checkbox
+                          id="relevance-both"
+                          checked={selectedRelevance.includes('both')}
+                          onCheckedChange={(checked) => 
+                            handleRelevanceFilter('both', checked as boolean)
+                          }
+                        />
+                        <Label 
+                          htmlFor="relevance-both"
+                          className="text-sm font-normal cursor-pointer flex items-center space-x-1"
+                        >
+                          <Crown className="h-3 w-3 text-green-600" />
+                          <UserCheck className="h-3 w-3 text-green-600" />
+                          <span>Ambos</span>
+                        </Label>
+                      </div>
+                    </div>
+                    {selectedRelevance.length > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setSelectedRelevance([])}
+                        className="mt-3"
+                      >
+                        Limpiar filtros de relevancia
                       </Button>
                     )}
                   </div>
@@ -293,7 +396,7 @@ function CandidatosCercaPage() {
               </h3>
               <p className="text-muted-foreground">
                 {nearbyCandidates.length === 0 
-                  ? "No eres responsable de ninguna etapa actualmente."
+                  ? "No eres manager de ningún proceso ni responsable de ninguna etapa actualmente."
                   : "No hay candidatos que coincidan con los filtros aplicados."
                 }
               </p>
@@ -314,6 +417,28 @@ function CandidatosCercaPage() {
                       <h3 className="text-lg font-semibold text-foreground mb-1 truncate">
                         {candidate.name}
                       </h3>
+                      {/* Relevance Indicator */}
+                      <div className="flex items-center space-x-1">
+                        {candidate.relevanceReason === 'manager' && (
+                          <Badge variant="outline" className="text-xs bg-purple-50 text-purple-700 border-purple-200">
+                            <Crown className="h-3 w-3 mr-1" />
+                            Eres el manager
+                          </Badge>
+                        )}
+                        {candidate.relevanceReason === 'responsible' && (
+                          <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700 border-blue-200">
+                            <UserCheck className="h-3 w-3 mr-1" />
+                            Eres responsable de la etapa
+                          </Badge>
+                        )}
+                        {candidate.relevanceReason === 'both' && (
+                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-200">
+                            <Crown className="h-3 w-3 mr-1" />
+                            <UserCheck className="h-3 w-3 mr-1" />
+                            Manager y responsable
+                          </Badge>
+                        )}
+                      </div>
                     </div>
 
                     {/* Process Name */}
@@ -341,14 +466,17 @@ function CandidatosCercaPage() {
                             }`}>
                               {stage.order}
                             </div>
-                            <div className={`flex-1 px-2 py-1 rounded text-xs ${
+                            <div className={`flex-1 px-2 py-1 rounded text-xs flex items-center justify-between ${
                               stage.id === candidate.currentStage.id
                                 ? 'bg-blue-100 text-blue-800 border border-blue-300 font-medium'
                                 : stage.order < candidate.currentStage.order
                                 ? 'bg-green-100 text-green-800'
                                 : 'bg-gray-100 text-gray-600'
                             }`}>
-                              {stage.name}
+                              <span>{stage.name}</span>
+                              {stage.responsible === profile?.full_name && (
+                                <UserCheck className="h-3 w-3 text-blue-600 flex-shrink-0" title="Eres responsable de esta etapa" />
+                              )}
                             </div>
                           </div>
                         ))}
