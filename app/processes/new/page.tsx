@@ -184,9 +184,9 @@ export default function NewProcess() {
         throw new Error(`Error al crear etapas: ${stagesError.message}`)
       }
 
-      // Éxito: mostrar mensaje y redirigir
+      // Éxito: mostrar mensaje y redirigir al proceso creado
       alert("¡Proceso creado exitosamente!")
-      window.location.href = "/dashboard"
+      window.location.href = `/processes/${processData.id}`
       
     } catch (error) {
       console.error('Error creating process:', error)

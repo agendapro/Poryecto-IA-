@@ -54,7 +54,7 @@ function DashboardPage() {
   const router = useRouter()
   const notifications = useNotifications()
   const [searchTerm, setSearchTerm] = useState("")
-  const [selectedFilter, setSelectedFilter] = useState("Todos")
+  const [selectedFilter, setSelectedFilter] = useState("Activo")
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [processToDelete, setProcessToDelete] = useState<{ id: number; title: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
