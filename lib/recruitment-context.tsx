@@ -122,6 +122,8 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
   const [processes, setProcesses] = useState<Process[]>([])
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
+  const [authSession, setAuthSession] = useState<any>(null)
+  const [dataInitialized, setDataInitialized] = useState(false)
 
   const fetchInitialData = useCallback(async () => {
     if (!useSupabase) {
@@ -149,12 +151,48 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       else setNotifications(notificationsData || [])
 
     setLoading(false)
+    setDataInitialized(true)
   }, [])
 
+  // Monitorear sesión de autenticación
   useEffect(() => {
-    fetchInitialData()
+    const getSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession()
+      setAuthSession(session)
+      if (session && !dataInitialized) {
+        fetchInitialData()
+      }
+    }
 
-    if (!useSupabase) return
+    getSession()
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      console.log('🔐 Auth state changed:', event, session?.user?.id)
+      setAuthSession(session)
+      
+      // Solo cargar datos en login real, no en cambios de pestaña o refreshes de token
+      if (event === 'SIGNED_IN' && !dataInitialized) {
+        console.log('📊 User signed in, fetching data...')
+        fetchInitialData()
+      } else if (event === 'SIGNED_OUT') {
+        console.log('🚪 User signed out, clearing data...')
+        setCandidates([])
+        setStages([])
+        setProcesses([])
+        setNotifications([])
+        setDataInitialized(false)
+        setLoading(false)
+      }
+      // Ignorar otros eventos como TOKEN_REFRESHED que ocurren al cambiar pestañas
+    })
+
+    return () => {
+      authListener.subscription.unsubscribe()
+    }
+  }, [fetchInitialData, dataInitialized])
+
+  useEffect(() => {
+    if (!useSupabase || !authSession) return
 
     // Real-time para candidatos
     const handleCandidateChanges = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
@@ -237,7 +275,7 @@ export function RecruitmentProvider({ children }: { children: ReactNode }) {
       supabase.removeChannel(processesChannel)
       supabase.removeChannel(stagesChannel)
     }
-  }, [fetchInitialData])
+  }, [authSession])
 
   const moveCandidateToStage = async (candidateId: number, newStageId: number, author = "Usuario") => {
     if (!useSupabase) return

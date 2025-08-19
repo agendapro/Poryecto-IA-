@@ -4,6 +4,7 @@ import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { RecruitmentProvider } from "@/lib/recruitment-context"
 import { AuthProvider } from "@/lib/auth-context"
+import { Toaster } from "@/components/ui/sonner"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -24,6 +25,7 @@ export default function RootLayout({
           <RecruitmentProvider>
             <ThemeProvider attribute="class" defaultTheme="light" forcedTheme="light">
               {children}
+              <Toaster position="top-right" expand={true} richColors />
             </ThemeProvider>
           </RecruitmentProvider>
         </AuthProvider>

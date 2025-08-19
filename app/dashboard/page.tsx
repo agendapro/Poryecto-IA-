@@ -22,6 +22,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Bell, User, Settings, LogOut, Search, Plus, Filter, MoreHorizontal, Users, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useNotifications } from "@/hooks/use-notifications"
 
 const getStatusColor = (status: string) => {
   switch (status) {
@@ -51,6 +52,7 @@ const getStatusIcon = (status: string) => {
 
 function DashboardPage() {
   const router = useRouter()
+  const notifications = useNotifications()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("Todos")
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
@@ -70,23 +72,26 @@ function DashboardPage() {
   const confirmDeleteProcess = async () => {
     if (!processToDelete) return
     
-    console.log('🚀 Starting deletion process...')
     setIsDeleting(true)
+    const loadingToast = notifications.loading("Eliminando proceso...")
     
     try {
       await deleteProcess(processToDelete.id)
-      console.log('🎉 Process deleted successfully')
       
       // Cerrar diálogo
       setShowDeleteDialog(false)
       setProcessToDelete(null)
       
-      // Mostrar mensaje de éxito
-      alert(`Proceso "${processToDelete.title}" eliminado exitosamente`)
+      // Mostrar notificación de éxito
+      notifications.dismiss(loadingToast)
+      notifications.processDeleted(processToDelete.title)
     } catch (error) {
-      console.error('💥 Error deleting process:', error)
+      console.error('Error deleting process:', error)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-      alert(`Error al eliminar proceso: ${errorMessage}`)
+      
+      // Mostrar notificación de error
+      notifications.dismiss(loadingToast)
+      notifications.error("Error al eliminar proceso", errorMessage)
     } finally {
       setIsDeleting(false)
     }
@@ -203,29 +208,29 @@ function DashboardPage() {
       <main className="flex-1 p-8 bg-gray-100">
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-          <Card className="group border border-gray-200 hover:border-green-300 hover:shadow-md transition-all duration-300 ease-out hover:-translate-y-1 cursor-pointer">
+          <Card className="border border-gray-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium group-hover:text-green-700 transition-colors duration-200">Procesos Activos</CardTitle>
-              <div className="p-1.5 bg-green-100 rounded-lg group-hover:bg-green-200 transition-colors duration-200">
-                <CheckCircle className="h-4 w-4 text-green-600 group-hover:scale-110 transition-transform duration-200" />
+              <CardTitle className="text-sm font-medium text-green-700">Procesos Activos</CardTitle>
+              <div className="p-1.5 bg-green-100 rounded-lg">
+                <CheckCircle className="h-4 w-4 text-green-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-green-700 group-hover:text-green-800 transition-colors duration-200">{stats.activeProcesses}</div>
-              <p className="text-xs text-muted-foreground group-hover:text-green-600 transition-colors duration-200">Procesos en reclutamiento</p>
+              <div className="text-2xl font-bold text-green-700">{stats.activeProcesses}</div>
+              <p className="text-xs text-muted-foreground">Procesos en reclutamiento</p>
             </CardContent>
           </Card>
 
-          <Card className="group border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all duration-300 ease-out hover:-translate-y-1 cursor-pointer">
+          <Card className="border border-gray-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium group-hover:text-blue-700 transition-colors duration-200">Total Candidatos</CardTitle>
-              <div className="p-1.5 bg-blue-100 rounded-lg group-hover:bg-blue-200 transition-colors duration-200">
-                <Users className="h-4 w-4 text-blue-600 group-hover:scale-110 transition-transform duration-200" />
+              <CardTitle className="text-sm font-medium text-blue-700">Total Candidatos</CardTitle>
+              <div className="p-1.5 bg-blue-100 rounded-lg">
+                <Users className="h-4 w-4 text-blue-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-blue-700 group-hover:text-blue-800 transition-colors duration-200">{stats.totalCandidates}</div>
-              <p className="text-xs text-muted-foreground group-hover:text-blue-600 transition-colors duration-200">Candidatos registrados</p>
+              <div className="text-2xl font-bold text-blue-700">{stats.totalCandidates}</div>
+              <p className="text-xs text-muted-foreground">Candidatos registrados</p>
             </CardContent>
           </Card>
 
@@ -245,16 +250,16 @@ function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="group border border-gray-200 hover:border-purple-300 hover:shadow-md transition-all duration-300 ease-out hover:-translate-y-1 cursor-pointer">
+          <Card className="border border-gray-200">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium group-hover:text-purple-700 transition-colors duration-200">Contratados</CardTitle>
-              <div className="p-1.5 bg-purple-100 rounded-lg group-hover:bg-purple-200 transition-colors duration-200">
-                <CheckCircle className="h-4 w-4 text-purple-600 group-hover:scale-110 transition-transform duration-200" />
+              <CardTitle className="text-sm font-medium text-purple-700">Contratados</CardTitle>
+              <div className="p-1.5 bg-purple-100 rounded-lg">
+                <CheckCircle className="h-4 w-4 text-purple-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold text-purple-700 group-hover:text-purple-800 transition-colors duration-200">{stats.hiredCandidates}</div>
-              <p className="text-xs text-muted-foreground group-hover:text-purple-600 transition-colors duration-200">Contrataciones exitosas</p>
+              <div className="text-2xl font-bold text-purple-700">{stats.hiredCandidates}</div>
+              <p className="text-xs text-muted-foreground">Contrataciones exitosas</p>
             </CardContent>
           </Card>
         </div>

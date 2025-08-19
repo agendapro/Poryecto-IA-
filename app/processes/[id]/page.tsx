@@ -34,6 +34,7 @@ import { useRecruitment } from "@/lib/recruitment-context"
 import { useAuth } from "@/lib/auth-context"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import withAuth from "@/components/withAuth"
+import { useNotifications } from "@/hooks/use-notifications"
 import { useRouter } from "next/navigation"
 
 function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
@@ -58,6 +59,7 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
   })
   
   const router = useRouter()
+  const notifications = useNotifications()
   const { id } = use(params)
   const processId = Number(id)
   const process = getProcess(processId)
@@ -179,17 +181,21 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
     e.preventDefault()
     if (draggedCandidate) {
       const candidate = getCandidate(draggedCandidate)
-      if (candidate && (candidate.current_stage_id !== targetStageId || candidate.status === "Rechazado")) {
+      const targetStage = processStages.find(s => s.id === targetStageId)
+      
+      if (candidate && (candidate.current_stage_id !== targetStageId || candidate.status === "Rechazado") && targetStage) {
         try {
           await moveCandidateToStage(draggedCandidate, targetStageId, profile?.full_name || "Usuario")
           
           // Mostrar mensaje específico si se reactivó un candidato rechazado
           if (candidate.status === "Rechazado") {
-            alert("Candidato reactivado y movido exitosamente")
+            notifications.success("Candidato reactivado", `${candidate.name} ha sido reactivado y movido a ${targetStage.name}`)
+          } else {
+            notifications.candidateMoved(candidate.name, targetStage.name)
           }
         } catch (error) {
           console.error('Error moving candidate:', error)
-          alert("Error al mover candidato. Por favor, intenta de nuevo.")
+          notifications.error("Error al mover candidato", "No se pudo mover el candidato. Inténtalo de nuevo.")
         }
       }
     }
@@ -236,15 +242,22 @@ function ProcessDetail({ params }: { params: Promise<{ id: string }> }) {
 
   const confirmRejectCandidate = async () => {
     if (candidateToReject && rejectReason.trim()) {
+      const candidate = getCandidate(candidateToReject)
+      const loadingToast = notifications.loading("Rechazando candidato...")
+      
       try {
         await rejectCandidate(candidateToReject, rejectReason, profile?.full_name || "Usuario")
         setCandidateToReject(null)
         setRejectReason("")
-        alert("Candidato rechazado exitosamente")
+        
+        notifications.dismiss(loadingToast)
+        notifications.candidateRejected(candidate?.name || "Candidato")
       } catch (error) {
         console.error('Error rejecting candidate:', error)
         const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
-        alert(`Error al rechazar candidato: ${errorMessage}`)
+        
+        notifications.dismiss(loadingToast)
+        notifications.error("Error al rechazar candidato", errorMessage)
       }
     }
   }

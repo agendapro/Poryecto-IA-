@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
+import { useNotifications } from "@/hooks/use-notifications"
 import {
   Dialog,
   DialogContent,
@@ -21,17 +22,38 @@ type AddUserDialogProps = {
 }
 
 export default function AddUserDialog({ onUserAdded, serverAction }: AddUserDialogProps) {
+  const notifications = useNotifications()
   const [isOpen, setIsOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleSubmit = async (formData: FormData) => {
-    const result = await serverAction(formData)
-    if (result.error) {
-      setError(result.error)
-    } else {
-      setError(null)
-      setIsOpen(false)
-      onUserAdded()
+    setIsSubmitting(true)
+    setError(null)
+    
+    const userName = formData.get("full_name") as string
+    const loadingToast = notifications.loading("Creando usuario...")
+    
+    try {
+      const result = await serverAction(formData)
+      
+      if (result.error) {
+        notifications.dismiss(loadingToast)
+        notifications.error("Error al crear usuario", result.error)
+        setError(result.error)
+      } else {
+        notifications.dismiss(loadingToast)
+        notifications.userCreated(userName)
+        setError(null)
+        setIsOpen(false)
+        onUserAdded()
+      }
+    } catch (error) {
+      notifications.dismiss(loadingToast)
+      notifications.error("Error inesperado", "Ocurrió un error al crear el usuario")
+      setError("Error inesperado al crear el usuario")
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -86,7 +108,9 @@ export default function AddUserDialog({ onUserAdded, serverAction }: AddUserDial
             {error && <p className="text-red-500 text-sm col-span-4">{error}</p>}
           </div>
           <DialogFooter>
-            <Button type="submit">Crear Usuario</Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Creando..." : "Crear Usuario"}
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>
