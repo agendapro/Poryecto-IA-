@@ -18,7 +18,8 @@ import { useAuth } from "@/lib/auth-context"
 import { useRecruitment } from "@/lib/recruitment-context"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Loading } from "@/components/ui/loading"
-import { Bell, User, Settings, LogOut, Search, Plus, Filter, MoreHorizontal, Users, Clock, CheckCircle, XCircle } from "lucide-react"
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Bell, User, Settings, LogOut, Search, Plus, Filter, MoreHorizontal, Users, Clock, CheckCircle, XCircle, AlertTriangle } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 
@@ -52,42 +53,50 @@ function DashboardPage() {
   const router = useRouter()
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedFilter, setSelectedFilter] = useState("Todos")
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [processToDelete, setProcessToDelete] = useState<{ id: number; title: string } | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
   const { user, profile, signOut } = useAuth()
   const { processes, candidates, stages, loading, deleteProcess } = useRecruitment()
 
-  // Función para manejar eliminación con confirmación
-  const handleDeleteProcess = async (processId: number, processTitle: string) => {
-    console.log('🗑️ handleDeleteProcess called with:', processId, processTitle)
+  // Función para abrir el diálogo de eliminación
+  const handleDeleteProcess = (processId: number, processTitle: string) => {
+    console.log('🗑️ Opening delete dialog for:', processId, processTitle)
+    setProcessToDelete({ id: processId, title: processTitle })
+    setShowDeleteDialog(true)
+  }
+
+  // Función para confirmar eliminación
+  const confirmDeleteProcess = async () => {
+    if (!processToDelete) return
+    
+    console.log('🚀 Starting deletion process...')
+    setIsDeleting(true)
     
     try {
-      console.log('🔔 Showing confirmation dialog...')
-      const confirmed = window.confirm(
-        `¿Eliminar el proceso "${processTitle}"?\n\n` +
-        `Esta acción NO SE PUEDE DESHACER.\n\n` +
-        `Se eliminará:\n` +
-        `✗ El proceso completo\n` +
-        `✗ Todas las etapas\n` +
-        `✗ Todos los candidatos\n` +
-        `✗ Todo el historial\n\n` +
-        `¿Continuar con la eliminación?`
-      )
+      await deleteProcess(processToDelete.id)
+      console.log('🎉 Process deleted successfully')
       
-      console.log('✅ Confirmation result:', confirmed)
+      // Cerrar diálogo
+      setShowDeleteDialog(false)
+      setProcessToDelete(null)
       
-      if (confirmed) {
-        console.log('🚀 Starting deletion process...')
-        await deleteProcess(processId)
-        console.log('🎉 Process deleted successfully')
-        // Mostrar mensaje de éxito
-        alert(`Proceso "${processTitle}" eliminado exitosamente`)
-      } else {
-        console.log('❌ User cancelled deletion')
-      }
+      // Mostrar mensaje de éxito
+      alert(`Proceso "${processToDelete.title}" eliminado exitosamente`)
     } catch (error) {
       console.error('💥 Error deleting process:', error)
       const errorMessage = error instanceof Error ? error.message : 'Error desconocido'
       alert(`Error al eliminar proceso: ${errorMessage}`)
+    } finally {
+      setIsDeleting(false)
     }
+  }
+
+  // Función para cancelar eliminación
+  const cancelDeleteProcess = () => {
+    console.log('❌ User cancelled deletion')
+    setShowDeleteDialog(false)
+    setProcessToDelete(null)
   }
 
   // Crear procesos enriquecidos con estadísticas
@@ -398,6 +407,67 @@ function DashboardPage() {
           </CardContent>
         </Card>
       </main>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              <span>Eliminar Proceso</span>
+            </DialogTitle>
+            <DialogDescription asChild>
+              <div className="space-y-3">
+                <p className="text-sm text-muted-foreground">
+                  ¿Estás seguro de que quieres eliminar el proceso{" "}
+                  <span className="font-semibold text-foreground">
+                    "{processToDelete?.title}"
+                  </span>
+                  ?
+                </p>
+                <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                  <p className="text-sm text-red-800 font-medium mb-2">
+                    ⚠️ Esta acción NO SE PUEDE DESHACER
+                  </p>
+                  <p className="text-sm text-red-700">
+                    Se eliminará permanentemente:
+                  </p>
+                  <ul className="text-sm text-red-700 mt-1 space-y-1">
+                    <li>• El proceso completo</li>
+                    <li>• Todas las etapas del proceso</li>
+                    <li>• Todos los candidatos asociados</li>
+                    <li>• Todo el historial y comentarios</li>
+                  </ul>
+                </div>
+              </div>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={cancelDeleteProcess}
+              disabled={isDeleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmDeleteProcess}
+              disabled={isDeleting}
+              className="min-w-[100px]"
+            >
+              {isDeleting ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Eliminando...</span>
+                </div>
+              ) : (
+                "Eliminar"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
