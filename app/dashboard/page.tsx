@@ -58,6 +58,7 @@ function DashboardPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [processToDelete, setProcessToDelete] = useState<{ id: number; title: string } | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [openDropdowns, setOpenDropdowns] = useState<Set<number>>(new Set())
   const { user, profile, signOut } = useAuth()
   const { processes, candidates, stages, loading, deleteProcess } = useRecruitment()
 
@@ -66,6 +67,8 @@ function DashboardPage() {
     console.log('🗑️ Opening delete dialog for:', processId, processTitle)
     setProcessToDelete({ id: processId, title: processTitle })
     setShowDeleteDialog(true)
+    // Cerrar todos los dropdowns
+    setOpenDropdowns(new Set())
   }
 
   // Función para confirmar eliminación
@@ -81,6 +84,7 @@ function DashboardPage() {
       // Cerrar diálogo
       setShowDeleteDialog(false)
       setProcessToDelete(null)
+      setOpenDropdowns(new Set()) // Asegurar que todos los dropdowns se cierren
       
       // Mostrar notificación de éxito
       notifications.dismiss(loadingToast)
@@ -102,6 +106,21 @@ function DashboardPage() {
     console.log('❌ User cancelled deletion')
     setShowDeleteDialog(false)
     setProcessToDelete(null)
+    // Asegurar que todos los dropdowns estén cerrados
+    setOpenDropdowns(new Set())
+  }
+
+  // Funciones para manejar dropdowns
+  const handleDropdownOpenChange = (processId: number, open: boolean) => {
+    setOpenDropdowns(prev => {
+      const newSet = new Set(prev)
+      if (open) {
+        newSet.add(processId)
+      } else {
+        newSet.delete(processId)
+      }
+      return newSet
+    })
   }
 
   // Crear procesos enriquecidos con estadísticas
@@ -134,9 +153,28 @@ function DashboardPage() {
 
   // Calcular estadísticas
   const stats = useMemo(() => {
+    if (!profile?.full_name) return { activeProcesses: 0, totalCandidates: 0, activeCandidates: 0, hiredCandidates: 0 }
+
     const activeProcesses = processes.filter(p => p.status === 'Activo').length
     const totalCandidates = candidates.length
-    const activeCandidates = candidates.filter(c => c.status === 'Activo').length
+    
+    // Calcular candidatos cercanos (donde el usuario es manager del proceso o responsable de la etapa actual)
+    const nearbyCandidates = candidates
+      .filter(candidate => candidate.status === 'Activo')
+      .filter(candidate => {
+        const process = processes.find(p => p.id === candidate.process_id)
+        const currentStage = stages.find(s => s.id === candidate.current_stage_id)
+        
+        if (!process || !currentStage) return false
+
+        // Determinar si es relevante para el usuario
+        const isManager = process.manager === profile.full_name
+        const isResponsible = currentStage.responsible === profile.full_name
+        
+        return isManager || isResponsible
+      })
+
+    const activeCandidates = nearbyCandidates.length
     const hiredCandidates = candidates.filter(c => c.status === 'Contratado').length
 
     return {
@@ -145,7 +183,7 @@ function DashboardPage() {
       activeCandidates,
       hiredCandidates
     }
-  }, [processes, candidates])
+  }, [processes, candidates, stages, profile?.full_name])
 
   if (loading) {
     return <Loading fullScreen text="Cargando dashboard..." size="xl" />
@@ -363,7 +401,10 @@ function DashboardPage() {
                         </div>
                       </div>
 
-                      <DropdownMenu>
+                      <DropdownMenu 
+                        open={openDropdowns.has(process.id)}
+                        onOpenChange={(open) => handleDropdownOpenChange(process.id, open)}
+                      >
                         <DropdownMenuTrigger asChild>
                           <Button 
                             variant="ghost" 
@@ -414,7 +455,17 @@ function DashboardPage() {
       </main>
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <Dialog 
+        open={showDeleteDialog} 
+        onOpenChange={(open) => {
+          setShowDeleteDialog(open)
+          if (!open) {
+            // Si el modal se cierra, limpiar todo el estado
+            setProcessToDelete(null)
+            setOpenDropdowns(new Set())
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center space-x-2 text-red-600">
